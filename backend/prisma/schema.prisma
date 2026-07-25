@@ -1,0 +1,508 @@
+// Prisma schema for the EMV B2B travel portal.
+//
+// Design constraints come from /PROJECT_SPEC.md (locked rules — do not violate):
+//   1. Soft-delete everywhere. Every table carries `archived`; nothing is ever hard-deleted.
+//      Every relation uses onDelete: Restrict so an accidental hard delete fails loudly
+//      at the database level instead of silently cascading.
+//   2. Library entries are COPIED into packages, never linked. PackageDay / PackageHotel
+//      deliberately have NO foreign key back to DayTemplate / Hotel — they are frozen
+//      snapshots taken at select-time. Same for VisaDocumentUpload.documentName, which is a
+//      copied string rather than an FK to VisaRequiredDocument.
+//   3. Payment unlocks BOOKING CONFIRMATION only. Both quote PDFs (Package.emvQuotePdfPath
+//      and Quote.pdfPath) are generatable and downloadable with no Payment row present.
+//      Payment only drives the transition into BOOKING_CONFIRMED.
+//
+// See /DATA_MODELS.md for a per-model description.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  admin
+  data_feeder
+  partner
+}
+
+enum Branding {
+  EMV
+  OWN
+}
+
+enum QuoteStatus {
+  QUOTE_GENERATED
+  CUSTOMER_APPROVED
+  PAYMENT_SUBMITTED
+  PENDING_VERIFICATION
+  BOOKING_CONFIRMED
+  ORDER_COMPLETED
+  REJECTED
+}
+
+enum PaymentType {
+  PACKAGE
+  VISA
+}
+
+enum PaymentStatus {
+  PENDING_VERIFICATION
+  APPROVED
+  REJECTED
+  INFO_REQUESTED
+}
+
+enum VisaRequestStatus {
+  APPLICATION_SUBMITTED
+  PAYMENT_SUBMITTED
+  PENDING_VERIFICATION
+  PAYMENT_APPROVED
+  VISA_PROCESSING_STARTED
+  COMPLETED
+  REJECTED
+}
+
+// ---------------------------------------------------------------------------
+// Auth & identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         Role
+  isVerified   Boolean   @default(false)
+  otpCode      String?
+  otpExpiresAt DateTime?
+
+  // Session-revocation counter. Every JWT carries the tokenVersion it was minted with;
+  // authMiddleware rejects a token whose value no longer matches this row. Incrementing it
+  // invalidates every token issued before that instant (password reset, admin archive).
+  tokenVersion Int @default(0)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Populated only when role = partner.
+  partnerProfile PartnerProfile?
+
+  quotes           Quote[]
+  visaRequests     VisaRequest[]
+  notifications    Notification[]
+  verifiedPayments Payment[]      @relation("PaymentVerifiedBy")
+
+  @@index([role])
+  @@index([archived])
+}
+
+model PartnerProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  companyName   String
+  companyLogo   String?
+  ownerName     String
+  gstNumber     String?
+  panNumber     String?
+  businessEmail String
+  mobile        String
+  officeAddress String
+  city          String
+  state         String
+  country       String
+  pincode       String
+  website       String?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Reference data / intern-maintained library
+// ---------------------------------------------------------------------------
+
+model Destination {
+  id   String @id @default(uuid())
+  name String @unique
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dayTemplates DayTemplate[]
+  hotels       Hotel[]
+  packages     Package[]
+
+  @@index([archived])
+}
+
+model DayTemplate {
+  id            String @id @default(uuid())
+  destinationId String
+  title         String
+  description   String @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+
+  @@index([destinationId])
+  @@index([archived])
+}
+
+model Hotel {
+  id            String   @id @default(uuid())
+  destinationId String
+  name          String
+  category      String
+  description   String   @db.Text
+  images        String[]
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+
+  @@index([destinationId])
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Packages (EMV wholesale product)
+// ---------------------------------------------------------------------------
+
+model Package {
+  id            String @id @default(uuid())
+  destinationId String
+  title         String
+  days          Int
+  nights        Int
+
+  // Raw EMV wholesale price. Never includes partner markup.
+  rawPrice Decimal @db.Decimal(12, 2)
+
+  inclusions String   @db.Text
+  exclusions String   @db.Text
+  gallery    String[]
+  tags       String[]
+
+  // Auto-generated EMV-branded quote PDF. Always available, no payment required.
+  emvQuotePdfPath String?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  destination   Destination    @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  packageDays   PackageDay[]
+  packageHotels PackageHotel[]
+  quotes        Quote[]
+
+  @@index([destinationId])
+  @@index([archived])
+}
+
+// Frozen copy of a DayTemplate. Intentionally has no FK to DayTemplate (locked rule 2).
+model PackageDay {
+  id          String @id @default(uuid())
+  packageId   String
+  dayNumber   Int
+  title       String
+  description String @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Restrict)
+
+  @@index([packageId])
+  @@index([archived])
+}
+
+// Frozen copy of a Hotel. Intentionally has no FK to Hotel (locked rule 2).
+model PackageHotel {
+  id               String @id @default(uuid())
+  packageId        String
+  hotelName        String
+  hotelCategory    String
+  hotelDescription String @db.Text
+
+  // 0-based position in the hotelIds array the admin submitted. Hotels are presented in the
+  // order the admin chose (flagship first, say), which alphabetical ordering would destroy.
+  sortOrder Int @default(0)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Restrict)
+
+  @@index([packageId])
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Quotes (partner white-label layer)
+// ---------------------------------------------------------------------------
+
+model Quote {
+  id        String @id @default(uuid())
+  packageId String
+  partnerId String
+
+  leadName        String
+  contactNumber   String
+  email           String
+  travelDate      DateTime @db.Date
+  adults          Int
+  children        Int      @default(0)
+  infants         Int      @default(0)
+  specialRequests String?  @db.Text
+
+  // The package's rawPrice FROZEN at the instant this quote was created — the same
+  // copy-on-select principle as rule 2, applied to price. All selling-price maths uses this,
+  // never the live Package.rawPrice, so an admin repricing a package can never move the
+  // numbers on a quote a partner has already given their customer.
+  rawPriceAtQuote Decimal @db.Decimal(12, 2)
+
+  // sellingPrice = rawPriceAtQuote + markupAmount (locked rule 5).
+  markupAmount Decimal @db.Decimal(12, 2)
+  sellingPrice Decimal @db.Decimal(12, 2)
+
+  branding Branding
+  pdfPath  String?
+
+  status QuoteStatus @default(QUOTE_GENERATED)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  package  Package   @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  partner  User      @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@index([packageId])
+  @@index([partnerId])
+  @@index([status])
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Payments (manual only — UPI/QR/bank + screenshot, admin-verified)
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id   String      @id @default(uuid())
+  type PaymentType
+
+  // Exactly one of these is set, per `type`. Enforced in the service layer.
+  quoteId       String?
+  visaRequestId String?
+
+  transactionId  String
+  amount         Decimal @db.Decimal(12, 2)
+  screenshotPath String
+  notes          String? @db.Text
+
+  // True when `amount` did not equal the quote's sellingPrice at submission time. Stored, not
+  // derived, so it stays a frozen audit signal: partners legitimately pay in parts or round,
+  // and the admin needs to see what was flagged when the money arrived.
+  reconciliationMismatch Boolean @default(false)
+
+  status       PaymentStatus @default(PENDING_VERIFICATION)
+  adminRemarks String?       @db.Text
+  verifiedById String?
+  verifiedAt   DateTime?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quote       Quote?       @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  visaRequest VisaRequest? @relation(fields: [visaRequestId], references: [id], onDelete: Restrict)
+  verifiedBy  User?        @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
+
+  @@index([quoteId])
+  @@index([visaRequestId])
+  @@index([verifiedById])
+  @@index([type])
+  @@index([status])
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Visa services
+// ---------------------------------------------------------------------------
+
+model VisaCountry {
+  id   String @id @default(uuid())
+  name String @unique
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requiredDocuments VisaRequiredDocument[]
+  visaRequests      VisaRequest[]
+
+  @@index([archived])
+}
+
+model VisaRequiredDocument {
+  id            String  @id @default(uuid())
+  visaCountryId String
+  documentName  String
+  isMandatory   Boolean @default(true)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaCountry VisaCountry @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+
+  @@index([visaCountryId])
+  @@index([archived])
+}
+
+model VisaRequest {
+  id            String @id @default(uuid())
+  partnerId     String
+  visaCountryId String
+
+  applicationNumber String @unique
+
+  status VisaRequestStatus @default(APPLICATION_SUBMITTED)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  partner             User                     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  visaCountry         VisaCountry              @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+  passengers          VisaPassenger[]
+  payments            Payment[]
+  requiredDocSnapshot VisaRequestRequiredDoc[]
+
+  @@index([partnerId])
+  @@index([visaCountryId])
+  @@index([status])
+  @@index([archived])
+}
+
+// Frozen copy of the country's required-document checklist, taken at the instant a VisaRequest
+// is created. Deliberately has NO FK to VisaRequiredDocument — the same copy-on-select principle
+// as PackageDay/PackageHotel (rule 2) and Quote.rawPriceAtQuote, applied a third time. Without
+// this, readyToSubmit read the country's LIVE checklist: an admin editing the checklist after a
+// partner created their request would shift the requirements underneath them, potentially
+// blocking payment for someone who had already satisfied the checklist as it stood.
+model VisaRequestRequiredDoc {
+  id            String  @id @default(uuid())
+  visaRequestId String
+  documentName  String
+  isMandatory   Boolean @default(true)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaRequest VisaRequest @relation(fields: [visaRequestId], references: [id], onDelete: Restrict)
+
+  @@index([visaRequestId])
+  @@index([archived])
+}
+
+model VisaPassenger {
+  id            String @id @default(uuid())
+  visaRequestId String
+
+  fullName       String
+  gender         String
+  dob            DateTime @db.Date
+  nationality    String
+  passportNumber String
+  passportExpiry DateTime @db.Date
+  travelDate     DateTime @db.Date
+  returnDate     DateTime @db.Date
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaRequest     VisaRequest          @relation(fields: [visaRequestId], references: [id], onDelete: Restrict)
+  documentUploads VisaDocumentUpload[]
+
+  @@index([visaRequestId])
+  @@index([archived])
+}
+
+// documentName is a copied string, not an FK to VisaRequiredDocument, so that changing a
+// country's document config never mutates already-submitted applications (locked rule 2).
+model VisaDocumentUpload {
+  id              String @id @default(uuid())
+  visaPassengerId String
+  documentName    String
+  filePath        String
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaPassenger VisaPassenger @relation(fields: [visaPassengerId], references: [id], onDelete: Restrict)
+
+  @@index([visaPassengerId])
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & CMS
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id      String  @id @default(uuid())
+  userId  String
+  type    String
+  message String  @db.Text
+  isRead  Boolean @default(false)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([archived])
+}
+
+model EmailTemplate {
+  id      String @id @default(uuid())
+  name    String @unique
+  subject String
+  body    String @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archived])
+}
