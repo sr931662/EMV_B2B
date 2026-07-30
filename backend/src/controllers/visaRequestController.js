@@ -34,7 +34,7 @@ const getOne = asyncHandler(async (req, res) => {
 const update = asyncHandler(async (req, res) => {
   const visaRequest = await visaRequestService.update(req.params.id, req.body, req.user);
 
-  res.status(200).json({ message: 'Passengers updated', visaRequest });
+  res.status(200).json({ message: 'Visa request updated', visaRequest });
 });
 
 const archive = asyncHandler(async (req, res) => {
@@ -86,19 +86,24 @@ const downloadDocumentFile = asyncHandler(async (req, res) => {
 });
 
 /**
- * Visa payment submission. Mirrors packageController's quote-payment route exactly, reusing
- * paymentService's shared upload/verification machinery from build step 6 (locked rule 6).
+ * Visa payment submission. Mirrors paymentController's quote-payment route exactly, reusing
+ * paymentService's shared upload/verification machinery from build step 6 (locked rule 6) —
+ * including, now that VisaRequest carries its own sellingPrice, the same reconciliation block.
  */
 const submitPayment = asyncHandler(async (req, res) => {
-  const { payment, message } = await paymentService.submitForVisaRequest(
-    req.params.id,
-    req.body,
-    req.file,
-    req.user
-  );
+  const { payment, reconciliationMismatch, expectedAmount, message } =
+    await paymentService.submitForVisaRequest(req.params.id, req.body, req.file, req.user);
 
   res.status(201).json({
     message,
+    reconciliation: {
+      amountPaid: payment.amount,
+      expectedAmount,
+      reconciliationMismatch,
+      note: reconciliationMismatch
+        ? 'Amount differs from the wholesale amount owed to TravNexa — flagged for review. (This is not the total shown to your customer — it excludes your markup.)'
+        : 'Amount matches the wholesale amount owed to TravNexa.',
+    },
     payment: {
       id: payment.id,
       type: payment.type,

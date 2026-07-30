@@ -43,6 +43,33 @@ const QUOTE_DETAIL_INCLUDE = {
   },
 };
 
+// Metadata only — screenshotPath is deliberately excluded. The proof image/PDF stays admin-only
+// (streamed via GET /api/admin/payments/:id/screenshot); a partner gets the outcome and remarks,
+// never the raw file path.
+const PAYMENT_SUMMARY_SELECT = {
+  id: true,
+  status: true,
+  amount: true,
+  transactionId: true,
+  adminRemarks: true,
+  reconciliationMismatch: true,
+  createdAt: true,
+  verifiedAt: true,
+};
+
+// Used only by the single-quote detail fetch (getById) — list/create/update/confirm don't need
+// the extra join. The payment is scoped to `where: { id }` on the already tenancy-checked quote,
+// so this can never surface a payment belonging to someone else's quote.
+const QUOTE_DETAIL_WITH_PAYMENT_INCLUDE = {
+  ...QUOTE_DETAIL_INCLUDE,
+  payments: {
+    where: { archived: false },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: PAYMENT_SUMMARY_SELECT,
+  },
+};
+
 /**
  * Fetches a quote and enforces tenancy.
  *
@@ -106,7 +133,7 @@ async function loadPartnerProfile(partnerId) {
     // to put on the document. Registration creates both in one transaction, so this is a
     // data-integrity failure rather than ordinary user error.
     throw ApiError.badRequest(
-      'Your partner profile is missing. Contact EMV support before generating quotes.'
+      'Your partner profile is missing. Contact TravNexa support before generating quotes.'
     );
   }
 
@@ -194,8 +221,16 @@ async function list(filters, user) {
   });
 }
 
+/**
+ * Single-quote detail fetch — the one place `latestPayment` is attached, so a partner can tell a
+ * rejected-payment quote (reverted to CUSTOMER_APPROVED) apart from one that was never paid, and
+ * see the admin's remarks without needing the notifications feed.
+ */
 async function getById(id, user) {
-  return getForUser(id, user);
+  const quote = await getForUser(id, user, { include: QUOTE_DETAIL_WITH_PAYMENT_INCLUDE });
+  const { payments, ...rest } = quote;
+
+  return { ...rest, latestPayment: payments[0] ?? null };
 }
 
 /**

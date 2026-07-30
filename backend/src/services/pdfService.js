@@ -6,8 +6,8 @@ const PDFDocument = require('pdfkit');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const EMV_QUOTE_DIR_REL = path.join('storage', 'quotes', 'emv');
 
-const BRAND = 'Ease My Vacations';
-const TAGLINE = 'Curated holidays for the trade — wholesale rates, worldwide.';
+const BRAND = 'TravNexa Global';
+const TAGLINE = 'Empowering Travel Businesses Worldwide';
 
 // Palette kept deliberately small: near-black body, one accent, one muted grey.
 const INK = '#1a1a1a';
@@ -332,7 +332,7 @@ async function generateEmvQuotePdf(pkg, { compress = true, fileName } = {}) {
     bufferPages: true, // needed to stamp footers once the page count is known
     compress,
     info: {
-      Title: `EMV Quote — ${pkg.title}`,
+      Title: `TravNexa Quote — ${pkg.title}`,
       Author: BRAND,
       Subject: `Wholesale package quotation for ${pkg.destination?.name ?? 'destination'}`,
     },

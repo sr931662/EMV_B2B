@@ -3,6 +3,9 @@
 > **Claude Code: re-read this file at the start of every session before writing or modifying code.**
 > These facts are locked. Do not silently change them. If a request conflicts with a rule below, stop and flag the conflict instead of guessing.
 
+> Display/brand name is "TravNexa Global". The internal branding enum value remains "EMV" for
+> data compatibility; the brand-guard/scrub now protects both names.
+
 ## App
 
 B2B travel portal. Travel agencies ("partners") buy holiday packages and visa services from **EMV** (the wholesaler) and resell them, white-labelled, to their own end customers.
@@ -235,8 +238,10 @@ money trail incomplete. `QUOTE_GENERATED`, `CUSTOMER_APPROVED` and `REJECTED` st
   arrives as P2002, which the error handler already renders as 409.
 - **Reconciliation.** `amount` is stored exactly as submitted — never coerced to the expected
   figure, since partners legitimately part-pay or round. `Payment.reconciliationMismatch`
-  (stored, not derived, so it is a frozen audit signal) is set when `amount !== sellingPrice`,
-  and the admin queue surfaces `amount`, `sellingPrice` and the flag side by side.
+  (stored, not derived, so it is a frozen audit signal) is set when `amount !== amountDue`
+  (**CORRECTED** — originally, and wrongly, compared against `sellingPrice`; see "RESOLVED —
+  partner pays TravNexa WHOLESALE, not sellingPrice" below), and the admin queue surfaces
+  `amount`, `amountDue`, `sellingPrice` and the flag side by side.
 - **Rule 3 holds throughout.** The quote PDF downloads at `CUSTOMER_APPROVED`,
   `PENDING_VERIFICATION` and `BOOKING_CONFIRMED` alike — verified at each stage. Payment gates
   only the booking, never a document.
@@ -247,7 +252,10 @@ money trail incomplete. `QUOTE_GENERATED`, `CUSTOMER_APPROVED` and `REJECTED` st
 `paymentService.VERIFICATION_SLA_MESSAGE` is shared by both the package (quote) and visa payment
 flows, so one edit covers both:
 > "Your payment has been submitted successfully. It is currently pending verification by the
-> Ease My Vacations team. Verification usually takes 24 to 48 hours."
+> TravNexa Global team. Verification usually takes 24 to 48 hours."
+
+(Wording updated from "Ease My Vacations" to "TravNexa Global" per the display-name change — see
+the branding note at the top of this file.)
 
 (Step 6 originally invented a "12-24 hours" wording, in the absence of any SLA text in this file
 at the time — that number was wrong and has been replaced. Any earlier reference in this document
@@ -385,6 +393,115 @@ everything right. Fixed the same way as `PackageDay`/`PackageHotel` (rule 2) and
   request; `readyToSubmit` stays `true` on the old request despite the live checklist growing;
   payment succeeds on the old request despite the drift; a **new** request created after the edit
   correctly picks up both documents in its own snapshot.
+
+**ADDED (post-step-9) — visa pricing.** Visas previously had NO price field anywhere in the
+schema (flagged as an open gap in step 7: "if EMV wants fee reconciliation for visas, a fee
+field needs adding"). Modeled exactly like package pricing, which already worked: a fixed
+per-country base fee, multiplied by passenger count, plus a partner markup — with the fee
+**snapshot-frozen at request creation**, copy-on-select (rule 2) applied a **fourth** time
+(after `PackageDay`/`PackageHotel`, `Quote.rawPriceAtQuote`, and the visa checklist snapshot).
+Migration `20260726082530_add_visa_pricing`.
+- `VisaCountry.baseFee Decimal(12,2) @default(0)` — the admin-set wholesale per-passenger fee.
+  Existing countries backfilled to 0 automatically via the column default (dev data, fine — no
+  multi-step backfill needed, unlike `rawPriceAtQuote`, which had to recover a real historical
+  value from existing rows; here the task explicitly said 0 is an acceptable backfill).
+- `VisaRequest.baseFeeAtRequest Decimal(12,2) @default(0)` — the country's `baseFee` frozen at
+  the instant a request is created. All selling-price maths uses this, never the live
+  `VisaCountry.baseFee`, so an admin repricing a country can never move an existing request's
+  numbers — verified: repricing a country from 2000 to 3000 left an existing request's
+  `baseFeeAtRequest` at 2000 and its `sellingPrice` unchanged until the partner's own markup
+  edit, which itself still used 2000, not 3000.
+- `VisaRequest.markupAmount` / `sellingPrice Decimal(12,2) @default(0)` —
+  `sellingPrice = baseFeeAtRequest × passengerCount + markupAmount`, computed server-side
+  (`visaRequestService.computeSellingPrice`), a client-sent value is silently stripped before
+  validation (`visaSchemas.stripServerOwnedVisaRequest`, mirroring `quoteSchemas.stripServerOwned`).
+- **`passengerCount` is NOT a stored column.** Passengers can only be edited while
+  `APPLICATION_SUBMITTED` (the existing lock), so the live count of non-archived `VisaPassenger`
+  rows *is* the count basis right up until payment — at which point passengers can no longer
+  change, so the count is fixed by construction. No new column needed.
+- **`PATCH /api/visa-requests/:id` — passengers made OPTIONAL (deviation from the literal
+  brief, made for correctness).** The brief described "the same PATCH" gaining a markup field,
+  but the existing endpoint always required a full `passengers` array (replace-pattern:
+  archive old rows + their document uploads, insert new ones). Making a partner resubmit an
+  unchanged passenger list just to adjust markup would have gone through that same
+  replace-pattern, archiving every uploaded document and resetting `documentReadiness` to
+  `false` for no reason. `passengers` and `markupAmount` are now independently optional (at
+  least one required); the replace-pattern only runs when `passengers` is actually sent.
+  Verified: PATCHing `{ markupAmount }` alone recomputes `sellingPrice` from the snapshot fee
+  and leaves both passengers and their document uploads completely untouched.
+- **Payment reconciliation now works for visas.** `Payment.reconciliationMismatch` was
+  hardcoded `false` for every `VISA` row (no price field existed to reconcile against). It now
+  reconciles `amount` against the visa request's wholesale `amountDue` exactly like packages
+  reconcile against the quote's wholesale `amountDue` (**CORRECTED** — this originally, and
+  wrongly, compared against `visaRequest.sellingPrice`; see "RESOLVED — partner pays TravNexa
+  WHOLESALE, not sellingPrice" below) — verified: paying 1000 against a 4000 wholesale-due
+  figure set `reconciliationMismatch: true` and surfaced correctly in the admin queue
+  (`GET /api/admin/payments`).
+- **`CAN_READ_VISA_CONFIG` narrowed — `data_feeder` removed (judgment call, not requested but
+  necessary).** Visa country read access was originally open to every authenticated role on the
+  stated reasoning "unlike packages there is no pricing data here for data_feeder to be kept
+  away from" (step 7). That reasoning is now false: `VisaCountry.baseFee` is wholesale pricing,
+  the exact thing packages already keep away from interns (`CAN_READ_PACKAGES` excludes
+  `data_feeder` entirely). Brought visa config in line with that precedent —
+  `CAN_READ_VISA_CONFIG` is now `['admin', 'partner']`. Zero product impact: `/admin/visa-config`
+  was already admin-only in the frontend router (`RequireAuth roles={['admin']}`), so
+  `data_feeder` never had a UI path to this data anyway — this closes a backend-only gap.
+  Verified: a `data_feeder` token now gets 403 on `GET /api/visa-countries`; `/api/destinations`
+  (their actual library) is unaffected.
+- **No white-label exposure concern.** Visa requests still generate no customer-facing document
+  of any kind (only packages/quotes do — see step 5's PDF scrub). `baseFee`/`markupAmount` are
+  never printed or emailed to anyone but the partner and admin, who are expected to see them
+  (same as `PackageCard`'s "TravNexa Cost" label being partner-visible, not a leak).
+- Frontend: `/admin/visa-config` country form gains a "Base visa fee" input; `/visa/new` gains a
+  live fee×passengers+markup calc (`VisaPriceCalcPanel`, mirroring `PriceCalcPanel`) before
+  submit; `/visa/:id` shows the same breakdown with a standalone "Edit markup" control (while
+  `APPLICATION_SUBMITTED`) that PATCHes `markupAmount` alone, never touching passengers; the
+  admin's visa request detail gets a read-only version of the same breakdown; `/visa/:id/payment`
+  prefills the amount field (**CORRECTED** — with `amountDue`, the wholesale figure, not
+  `sellingPrice`; see "RESOLVED — partner pays TravNexa WHOLESALE, not sellingPrice" below) and
+  shows the same reconciliation-mismatch warning packages already had.
+
+**RESOLVED — partner pays TravNexa WHOLESALE, not sellingPrice (bug found by audit, fixed).**
+An audit of the manual-payment flow found that both payment flows — package (step 6) and visa
+(added above) — had the partner pay, and reconcile against, `sellingPrice` (raw/base cost +
+partner markup) instead of the wholesale amount. Since `sellingPrice` is exactly what the
+partner's *own customer* owes *them* (correctly shown, unchanged, on the white-label PDF — see
+step 5), the bug meant TravNexa's payment flow was effectively asking the partner to hand over
+their own profit margin, and would only clear a payment cleanly (no mismatch) if the partner
+over-paid TravNexa by their own markup.
+- **`amountDue` (what the partner owes TravNexa) = `sellingPrice - markupAmount`.** Since
+  `sellingPrice = wholesale + markupAmount` by construction (locked rule 5, and its visa
+  equivalent), this recovers the exact wholesale figure — `rawPriceAtQuote` for packages,
+  `baseFeeAtRequest × passengerCount` for visas — with one formula, no type-specific branching.
+  `paymentService.computeAmountDue(sellingPrice, markupAmount)`.
+- **Fixed at all three sites the audit named:**
+  1. Reconciliation (`paymentService.submitForQuote` / `submitForVisaRequest`): `expected` is now
+     `computeAmountDue(...)`, not `quote.sellingPrice` / `visaRequest.sellingPrice`.
+  2. Payment page prefill (`QuotePaymentPage.jsx`, `VisaPaymentPage.jsx`): the amount field and
+     `PaymentMethodsPanel`'s `amountDue` prop now both use the wholesale figure. Both pages show
+     an explicit reassurance: "You pay TravNexa the wholesale cost (₹X). Your ₹Y markup is your
+     profit, collected from your customer separately — it is not paid to TravNexa."
+  3. Admin verification view (`toQueueRow`, `AdminPaymentsQueuePage.jsx`,
+     `AdminPaymentDetailPage.jsx`): `toQueueRow` now returns `amountDue` and `markupAmount`
+     alongside the existing `sellingPrice`, and the mismatch check/display uses `amountDue`.
+     `sellingPrice`/`markupAmount` stay visible for context (admin needs the full picture), just
+     no longer used as the reconciliation basis.
+- **Side-fix, found while touching this code:** `AdminPaymentDetailPage.jsx`'s top mismatch
+  alert previously hardcoded `quote?.sellingPrice`, which was `undefined` (rendering blank) for
+  any `VISA` payment — it never had a type branch. Now reads `summary.amountDue`, which
+  `toQueueRow` populates for both types, fixing this incidentally.
+- **What did NOT change (explicitly out of scope):** the white-label PDF (still shows
+  `sellingPrice` only — correct, that's what the customer owes the partner); the schema and all
+  four snapshot columns (`rawPriceAtQuote`, `baseFeeAtRequest`, `markupAmount`, `sellingPrice`);
+  the partner's own quote/visa-request detail pricing breakdown (still shows raw, markup, and
+  selling — that's the partner's business view of their own margin, untouched).
+- **Verified end-to-end:** a quote with `rawPriceAtQuote = 100000`, `markupAmount = 15000`
+  (`sellingPrice = 115000`) — paying `100000` → `reconciliationMismatch: false`,
+  `expectedAmount: "100000"`; paying `115000` (the selling price) → `reconciliationMismatch: true`,
+  `expectedAmount: "100000"`. A visa request with `baseFeeAtRequest = 2000`, 2 passengers,
+  `markupAmount = 500` (`sellingPrice = 4500`) — paying `4000` → mismatch `false`; paying `4500`
+  → mismatch `true`. The admin queue's `amountDue` field showed `100000`/`4000` respectively for
+  both, alongside the unchanged `sellingPrice` of `115000`/`4500`.
 
 **Step 8 (email automation + in-app notifications) complete — backend only, no frontend.**
 - `EMAIL_TRANSPORT` env var picks the transport: `console` (default) renders the full email to
@@ -607,7 +724,7 @@ were re-run afterward and still pass — `paymentService.js`, `quoteService.js`,
 | Data libraries | `/api/destinations`, `/api/day-templates`, `/api/hotels` | write: admin+data_feeder; read: all roles |
 | Packages | `/api/packages` (+ `/:id/emv-quote.pdf`) | write: admin; read: admin+partner |
 | Quotes | `/api/quotes` (+ `/:id/quote.pdf`, `/:id/payment`) | write: partner (own); read: partner (own)+admin |
-| Visa config | `/api/visa-countries` (+ nested `/:countryId/documents`) | write: admin; read: all roles |
+| Visa config | `/api/visa-countries` (+ nested `/:countryId/documents`) | write: admin; read: admin+partner (data_feeder excluded once pricing was added — see the visa pricing note above) |
 | Visa requests | `/api/visa-requests` (+ passenger documents, `/:id/payment`) | write: partner (own); read: partner (own)+admin |
 | Payment verification | `/api/admin/payments` | admin only |
 | Visa admin actions | `/api/admin/visa-requests` (`/:id/complete`, `/:id/reject-application`) | admin only |

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Prisma } = require('@prisma/client');
 
 const prisma = require('../utils/prisma');
 const ApiError = require('../utils/ApiError');
@@ -25,7 +26,7 @@ const EDITABLE_STATUSES = ['APPLICATION_SUBMITTED'];
 const NON_ARCHIVABLE_STATUSES = ['PAYMENT_APPROVED', 'VISA_PROCESSING_STARTED', 'COMPLETED'];
 
 const REQUEST_DETAIL_INCLUDE = {
-  visaCountry: { select: { id: true, name: true, archived: true } },
+  visaCountry: { select: { id: true, name: true, archived: true, baseFee: true } },
   partner: {
     select: {
       id: true,
@@ -48,6 +49,44 @@ function generateApplicationNumber() {
   const stamp = Date.now().toString(36).toUpperCase();
   const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
   return `VISA-${stamp}-${rand}`;
+}
+
+/**
+ * sellingPrice = baseFeeAtRequest * passengerCount + markupAmount.
+ *
+ * `baseFeeAtRequest` here is always the request's OWN frozen snapshot, never the live
+ * VisaCountry.baseFee — frozen once in `create()` below and never re-read from the country
+ * afterward. Uses Prisma.Decimal throughout, never JS floats: this value gets invoiced and
+ * reconciled against a real payment.
+ */
+function computeSellingPrice(baseFeeAtRequest, passengerCount, markupAmount) {
+  return new Prisma.Decimal(baseFeeAtRequest)
+    .times(passengerCount)
+    .plus(new Prisma.Decimal(markupAmount));
+}
+
+/**
+ * Pricing block attached to every request detail response — mirrors the shape of a quote's
+ * pricing (rawPriceAtQuote/markupAmount/sellingPrice/rawPriceChangedSinceQuote), applied to
+ * visas. `passengerCount` is the LIVE count of non-archived passengers: it is not a separate
+ * stored column (see the comment on VisaRequest.baseFeeAtRequest in schema.prisma).
+ * `feeChangedSinceRequest` is informational only — nothing computes from it.
+ */
+function computePricingBlock(visaRequest) {
+  const baseFeeAtRequest = new Prisma.Decimal(visaRequest.baseFeeAtRequest);
+  const markupAmount = new Prisma.Decimal(visaRequest.markupAmount);
+  const passengerCount = visaRequest.passengers.length;
+  const liveCountryFee = new Prisma.Decimal(visaRequest.visaCountry.baseFee);
+
+  return {
+    baseFeeAtRequest,
+    passengerCount,
+    visaCost: baseFeeAtRequest.times(passengerCount),
+    markupAmount,
+    sellingPrice: new Prisma.Decimal(visaRequest.sellingPrice),
+    liveCountryFee,
+    feeChangedSinceRequest: !baseFeeAtRequest.equals(liveCountryFee),
+  };
 }
 
 /**
@@ -131,17 +170,19 @@ async function getReadiness(visaRequestId) {
   return computeReadiness(request.passengers, requiredDocuments);
 }
 
-/** Full detail: request + passengers + their uploads + the frozen checklist + readiness + latest payment. */
+/** Full detail: request + passengers + their uploads + the frozen checklist + readiness + pricing + latest payment. */
 async function getDetailForUser(id, user) {
   const visaRequest = await getForUser(id, user);
 
   const requiredDocuments = await getRequiredDocSnapshot(id);
   const documentReadiness = computeReadiness(visaRequest.passengers, requiredDocuments);
+  const pricing = computePricingBlock(visaRequest);
 
   return {
     ...visaRequest,
     requiredDocuments,
     documentReadiness,
+    pricing,
     latestPayment: visaRequest.payments[0] ?? null,
   };
 }
@@ -157,7 +198,7 @@ async function getDetailForUser(id, user) {
  * applicationNumber collisions are astronomically unlikely (time + random) but the column is
  * @unique, so a retry loop handles the theoretical case cleanly instead of surfacing a raw P2002.
  */
-async function createRequestWithRetry(visaCountryId, passengers, partnerId, attempt = 0) {
+async function createRequestWithRetry(visaCountryId, passengers, partnerId, pricing, attempt = 0) {
   const applicationNumber = generateApplicationNumber();
 
   try {
@@ -168,6 +209,9 @@ async function createRequestWithRetry(visaCountryId, passengers, partnerId, atte
           visaCountryId,
           applicationNumber,
           status: 'APPLICATION_SUBMITTED',
+          baseFeeAtRequest: pricing.baseFeeAtRequest,
+          markupAmount: pricing.markupAmount,
+          sellingPrice: pricing.sellingPrice,
         },
       });
 
@@ -196,16 +240,27 @@ async function createRequestWithRetry(visaCountryId, passengers, partnerId, atte
       err.code === 'P2002' && (err.meta?.target ?? []).includes('applicationNumber');
 
     if (isApplicationNumberClash && attempt < 5) {
-      return createRequestWithRetry(visaCountryId, passengers, partnerId, attempt + 1);
+      return createRequestWithRetry(visaCountryId, passengers, partnerId, pricing, attempt + 1);
     }
     throw err;
   }
 }
 
-async function create({ visaCountryId, passengers }, user) {
-  await visaCountryService.assertActiveVisaCountry(visaCountryId); // 400 if missing/archived
+async function create({ visaCountryId, passengers, markupAmount = 0 }, user) {
+  // 400 if missing/archived; also the source of the fee we freeze below.
+  const country = await visaCountryService.assertActiveVisaCountry(visaCountryId);
 
-  const created = await createRequestWithRetry(visaCountryId, passengers, user.id);
+  // Freeze the wholesale basis at this instant (copy-on-select, rule 2, applied a fourth time).
+  // From here on this request's economics are independent of the country: repricing it later
+  // cannot move this request's numbers.
+  const baseFeeAtRequest = new Prisma.Decimal(country.baseFee);
+  const sellingPrice = computeSellingPrice(baseFeeAtRequest, passengers.length, markupAmount);
+
+  const created = await createRequestWithRetry(visaCountryId, passengers, user.id, {
+    baseFeeAtRequest,
+    markupAmount: new Prisma.Decimal(markupAmount),
+    sellingPrice,
+  });
 
   return getDetailForUser(created.id, user);
 }
@@ -232,6 +287,7 @@ async function list(filters, user) {
       archived: true,
       createdAt: true,
       updatedAt: true,
+      sellingPrice: true,
       visaCountry: { select: { id: true, name: true } },
       partner: {
         select: { id: true, email: true, partnerProfile: { select: { companyName: true } } },
@@ -248,6 +304,7 @@ async function list(filters, user) {
     archived: r.archived,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    sellingPrice: r.sellingPrice,
     countryName: r.visaCountry.name,
     agencyName: r.partner.partnerProfile?.companyName ?? null,
     passengerCount: r._count.passengers,
@@ -263,33 +320,54 @@ async function getById(id, user) {
  * no meaning independent of the passenger it was submitted for, archive their uploads
  * alongside), then insert fresh copies — all in one transaction. Allowed only while
  * APPLICATION_SUBMITTED, same reasoning as quotes locking after QUOTE_GENERATED.
+ *
+ * `passengers` and `markupAmount` are independently optional (visaSchemas.updateVisaRequestSchema
+ * requires at least one). Passengers are only replaced when actually supplied — a markup-only
+ * edit must not go through the replace-pattern, which would archive every passenger's uploaded
+ * documents and reset documentReadiness even though nothing about the passengers changed.
+ *
+ * sellingPrice is always recomputed from the request's OWN frozen `baseFeeAtRequest` — never the
+ * live VisaCountry.baseFee — using whichever passenger count and markup are in effect after this
+ * edit (existing values for whichever field wasn't sent).
  */
-async function update(id, { passengers }, user) {
+async function update(id, { passengers, markupAmount }, user) {
   const existing = await getForUser(id, user);
 
   if (!EDITABLE_STATUSES.includes(existing.status)) {
     throw ApiError.conflict(
-      `Cannot edit passengers, application already in progress (status: ${existing.status}). ` +
+      `Cannot edit, application already in progress (status: ${existing.status}). ` +
         `Only ${EDITABLE_STATUSES.join('/')} requests can be edited.`
     );
   }
 
-  const oldPassengerIds = existing.passengers.map((p) => p.id);
+  const effectiveMarkup =
+    markupAmount !== undefined ? new Prisma.Decimal(markupAmount) : new Prisma.Decimal(existing.markupAmount);
+  const effectivePassengerCount = passengers !== undefined ? passengers.length : existing.passengers.length;
+  const sellingPrice = computeSellingPrice(existing.baseFeeAtRequest, effectivePassengerCount, effectiveMarkup);
 
   await prisma.$transaction(async (tx) => {
-    if (oldPassengerIds.length) {
-      await tx.visaDocumentUpload.updateMany({
-        where: { visaPassengerId: { in: oldPassengerIds }, archived: false },
-        data: { archived: true },
-      });
-      await tx.visaPassenger.updateMany({
-        where: { id: { in: oldPassengerIds }, archived: false },
-        data: { archived: true },
+    if (passengers !== undefined) {
+      const oldPassengerIds = existing.passengers.map((p) => p.id);
+
+      if (oldPassengerIds.length) {
+        await tx.visaDocumentUpload.updateMany({
+          where: { visaPassengerId: { in: oldPassengerIds }, archived: false },
+          data: { archived: true },
+        });
+        await tx.visaPassenger.updateMany({
+          where: { id: { in: oldPassengerIds }, archived: false },
+          data: { archived: true },
+        });
+      }
+
+      await tx.visaPassenger.createMany({
+        data: passengers.map((p) => ({ ...p, visaRequestId: id })),
       });
     }
 
-    await tx.visaPassenger.createMany({
-      data: passengers.map((p) => ({ ...p, visaRequestId: id })),
+    await tx.visaRequest.update({
+      where: { id },
+      data: { markupAmount: effectiveMarkup, sellingPrice },
     });
   });
 
@@ -518,6 +596,8 @@ module.exports = {
   complete,
   rejectApplication,
   getForUser,
+  computeSellingPrice,
+  computePricingBlock,
   VISA_DOCUMENT_UPLOAD_DIR_REL,
   EDITABLE_STATUSES,
   NON_ARCHIVABLE_STATUSES,

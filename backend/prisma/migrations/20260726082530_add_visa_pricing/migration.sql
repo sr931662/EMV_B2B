@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "VisaCountry" ADD COLUMN     "baseFee" DECIMAL(12,2) NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "VisaRequest" ADD COLUMN     "baseFeeAtRequest" DECIMAL(12,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "markupAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "sellingPrice" DECIMAL(12,2) NOT NULL DEFAULT 0;

@@ -33,7 +33,7 @@ function smtpTransport() {
   return {
     async send({ to, subject, html, text }) {
       await transporter.sendMail({
-        from: process.env.SMTP_FROM || 'Ease My Vacations <no-reply@example.com>',
+        from: process.env.SMTP_FROM || 'TravNexa Global <no-reply@example.com>',
         to,
         subject,
         html,
@@ -94,7 +94,7 @@ function stripTags(html) {
 // it still goes through the same interpolate() step as a real row below.
 function fallbackTemplate(name) {
   return {
-    subject: `Ease My Vacations — ${name.replace(/_/g, ' ')}`,
+    subject: `TravNexa Global — ${name.replace(/_/g, ' ')}`,
     body: `<p>This is an automated notification ({{__templateName}}) whose template is not yet configured.</p>`,
   };
 }

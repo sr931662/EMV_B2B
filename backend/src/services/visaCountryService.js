@@ -9,7 +9,7 @@ const ApiError = require('../utils/ApiError');
 async function assertActiveVisaCountry(visaCountryId) {
   const country = await prisma.visaCountry.findUnique({
     where: { id: visaCountryId },
-    select: { id: true, name: true, archived: true },
+    select: { id: true, name: true, archived: true, baseFee: true },
   });
 
   if (!country) {
@@ -30,7 +30,7 @@ async function assertActiveVisaCountry(visaCountryId) {
  * Name matching is case-insensitive. If the match is archived we restore it rather than 409 —
  * same dead-name-lockout reasoning as destinationService.create.
  */
-async function create({ name }) {
+async function create({ name, baseFee = 0 }) {
   const existing = await prisma.visaCountry.findFirst({
     where: { name: { equals: name, mode: 'insensitive' } },
   });
@@ -42,13 +42,15 @@ async function create({ name }) {
   if (existing && existing.archived) {
     const restored = await prisma.visaCountry.update({
       where: { id: existing.id },
-      data: { archived: false, name }, // adopt the casing the caller just supplied
+      // Adopt the casing AND fee the caller just supplied — a "create" that restores an
+      // archived row should behave like a fresh create in every visible respect.
+      data: { archived: false, name, baseFee },
     });
 
     return { country: restored, restored: true };
   }
 
-  const created = await prisma.visaCountry.create({ data: { name } });
+  const created = await prisma.visaCountry.create({ data: { name, baseFee } });
 
   return { country: created, restored: false };
 }
@@ -69,22 +71,31 @@ async function getById(id) {
   return country;
 }
 
-async function update(id, { name }) {
+async function update(id, { name, baseFee }) {
   await getById(id); // 404 if missing
 
-  const clash = await prisma.visaCountry.findFirst({
-    where: { name: { equals: name, mode: 'insensitive' }, id: { not: id } },
-  });
+  // name is optional here (a baseFee-only edit sends no name) — only run the uniqueness check
+  // when a name was actually supplied. `equals: undefined` would make Prisma ignore the
+  // condition entirely, matching ANY other row and reporting a false clash.
+  if (name !== undefined) {
+    const clash = await prisma.visaCountry.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' }, id: { not: id } },
+    });
 
-  if (clash) {
-    throw ApiError.conflict(
-      clash.archived
-        ? `An archived visa country named "${clash.name}" already uses that name. Restore it instead.`
-        : `A visa country named "${clash.name}" already exists`
-    );
+    if (clash) {
+      throw ApiError.conflict(
+        clash.archived
+          ? `An archived visa country named "${clash.name}" already uses that name. Restore it instead.`
+          : `A visa country named "${clash.name}" already exists`
+      );
+    }
   }
 
-  return prisma.visaCountry.update({ where: { id }, data: { name } });
+  const data = {};
+  if (name !== undefined) data.name = name;
+  if (baseFee !== undefined) data.baseFee = baseFee;
+
+  return prisma.visaCountry.update({ where: { id }, data });
 }
 
 /** Soft delete (locked rule 1). Does not cascade to required documents or in-flight requests. */

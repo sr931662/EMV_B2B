@@ -21,7 +21,7 @@ const PAYMENT_UPLOAD_DIR_REL = path.join('storage', 'payments');
  */
 const VERIFICATION_SLA_MESSAGE =
   'Your payment has been submitted successfully. It is currently pending verification by the ' +
-  'Ease My Vacations team. Verification usually takes 24 to 48 hours.';
+  'TravNexa Global team. Verification usually takes 24 to 48 hours.';
 
 // ---------------------------------------------------------------------------
 // State machine
@@ -68,6 +68,8 @@ const QUEUE_INCLUDE = {
       id: true,
       status: true,
       applicationNumber: true,
+      sellingPrice: true,
+      markupAmount: true,
       visaCountry: { select: { name: true } },
       partner: {
         select: {
@@ -83,16 +85,40 @@ const QUEUE_INCLUDE = {
 };
 
 /**
+ * What the PARTNER owes TRAVNEXA — the wholesale amount, never the customer-facing sellingPrice.
+ *
+ * sellingPrice = wholesale + markupAmount by construction (locked rule 5 / its visa equivalent),
+ * so wholesale = sellingPrice - markupAmount recovers the exact wholesale figure without needing
+ * a second, type-specific computation (rawPriceAtQuote for packages vs baseFeeAtRequest ×
+ * passengerCount for visas) — one formula, no branching, for both payment flows.
+ *
+ * The markup is the partner's OWN profit, collected from their end customer separately (via the
+ * white-label PDF, which still shows sellingPrice — that part is correct and untouched). It must
+ * never flow to TravNexa, which is exactly the bug this function fixes: `submitForQuote` and
+ * `submitForVisaRequest` used to reconcile the partner's payment against `sellingPrice`, meaning
+ * TravNexa's manual-payment flow was effectively asking the partner to hand over their own
+ * markup too.
+ */
+function computeAmountDue(sellingPrice, markupAmount) {
+  return new Prisma.Decimal(sellingPrice).minus(new Prisma.Decimal(markupAmount));
+}
+
+/**
  * Flattened queue row — what an admin needs to triage without opening each payment.
  *
  * PACKAGE and VISA rows share one stable superset shape (fields meaningless for a given type are
  * null) so the admin queue UI can render both without a type switch: packageTitle/destination/
  * leadName/sellingPrice/quoteStatus are PACKAGE-only; countryName/applicationNumber/
  * passengerCount/visaRequestStatus are VISA-only.
+ *
+ * `amountDue` (wholesale — what the partner owes TravNexa) is the figure `reconciliationMismatch`
+ * is actually checked against; `sellingPrice` is kept alongside it purely as context so an admin
+ * can see the full picture (customer-facing total, and by subtraction the partner's markup).
  */
 function toQueueRow(payment) {
   const quote = payment.quote;
   const visaRequest = payment.visaRequest;
+  const parent = quote ?? visaRequest;
 
   return {
     paymentId: payment.id,
@@ -106,7 +132,9 @@ function toQueueRow(payment) {
     packageTitle: quote?.package?.title ?? null,
     destination: quote?.package?.destination?.name ?? null,
     leadName: quote?.leadName ?? null,
-    sellingPrice: quote?.sellingPrice ?? null,
+    sellingPrice: quote?.sellingPrice ?? visaRequest?.sellingPrice ?? null,
+    markupAmount: parent?.markupAmount ?? null,
+    amountDue: parent ? computeAmountDue(parent.sellingPrice, parent.markupAmount) : null,
     quoteStatus: quote?.status ?? null,
     countryName: visaRequest?.visaCountry?.name ?? null,
     applicationNumber: visaRequest?.applicationNumber ?? null,
@@ -114,9 +142,8 @@ function toQueueRow(payment) {
     visaRequestStatus: visaRequest?.status ?? null,
     transactionId: payment.transactionId,
     amount: payment.amount,
-    // VisaRequest carries no price field in the schema (unlike Quote.sellingPrice), so there is
-    // nothing to reconcile a visa payment against — always false for VISA rows. See
-    // paymentService.submitForVisaRequest and PROJECT_SPEC.md.
+    // Both PACKAGE and VISA rows reconcile amount against the parent's wholesale amountDue — see
+    // paymentService.submitForQuote and submitForVisaRequest.
     reconciliationMismatch: payment.reconciliationMismatch,
     paymentStatus: payment.status,
     submittedAt: payment.createdAt,
@@ -167,7 +194,7 @@ async function submitForQuote(quoteId, { transactionId, amount, notes }, file, u
   if (!payable) {
     throw ApiError.conflict(
       `Cannot submit payment for a quote in status ${quote.status}. Payment is only accepted from ${QUOTE_STATUS_PAYABLE}` +
-        ', or when EMV has requested more information about a submitted payment.'
+        ', or when TravNexa has requested more information about a submitted payment.'
     );
   }
 
@@ -175,13 +202,16 @@ async function submitForQuote(quoteId, { transactionId, amount, notes }, file, u
   if (blocking) {
     throw ApiError.conflict(
       `A payment for this quote is already ${blocking.status} (id ${blocking.id}). ` +
-        'Wait for verification, or contact EMV if it needs changing.'
+        'Wait for verification, or contact TravNexa if it needs changing.'
     );
   }
 
-  // Stored as given, never coerced to the expected figure — partners sometimes pay in parts or
-  // round. The mismatch is surfaced to the admin instead of being silently "fixed".
-  const expected = new Prisma.Decimal(quote.sellingPrice);
+  // The partner owes TravNexa the WHOLESALE amount only — sellingPrice includes their own
+  // markup, which is their profit from their end customer and must never flow to TravNexa (see
+  // computeAmountDue). Stored as given, never coerced to the expected figure — partners
+  // sometimes pay in parts or round. The mismatch is surfaced to the admin instead of being
+  // silently "fixed".
+  const expected = computeAmountDue(quote.sellingPrice, quote.markupAmount);
   const paid = new Prisma.Decimal(amount);
   const reconciliationMismatch = !paid.equals(expected);
 
@@ -277,9 +307,11 @@ async function submitForQuote(quoteId, { transactionId, amount, notes }, file, u
  * Mirrors submitForQuote's shape and lifecycle exactly, with two differences forced by the
  * schema: (1) the payable status is APPLICATION_SUBMITTED, not CUSTOMER_APPROVED, and (2) there
  * is a hard precondition — visaRequestService.getReadiness must report readyToSubmit before any
- * payment is accepted ("validate before submission"). VisaRequest also carries no price field,
- * so unlike quotes there is nothing to reconcile the paid amount against;
- * reconciliationMismatch is always false for VISA payments.
+ * payment is accepted ("validate before submission"). Now that VisaRequest carries its own
+ * sellingPrice (fixed per-country fee × passenger count + partner markup, frozen at request
+ * creation), reconciliation works exactly like packages: amount is checked against the WHOLESALE
+ * amount due (computeAmountDue — sellingPrice minus the partner's own markup), never coerced to
+ * it, and never against sellingPrice itself (that would charge the partner their own markup).
  */
 async function submitForVisaRequest(visaRequestId, { transactionId, amount, notes }, file, user) {
   const visaRequest = await prisma.visaRequest.findUnique({
@@ -302,7 +334,7 @@ async function submitForVisaRequest(visaRequestId, { transactionId, amount, note
   if (!payable) {
     throw ApiError.conflict(
       `Cannot submit payment for a visa request in status ${visaRequest.status}. Payment is only accepted from ${VISA_STATUS_PAYABLE}` +
-        ', or when EMV has requested more information about a submitted payment.'
+        ', or when TravNexa has requested more information about a submitted payment.'
     );
   }
 
@@ -319,11 +351,17 @@ async function submitForVisaRequest(visaRequestId, { transactionId, amount, note
   if (blocking) {
     throw ApiError.conflict(
       `A payment for this visa request is already ${blocking.status} (id ${blocking.id}). ` +
-        'Wait for verification, or contact EMV if it needs changing.'
+        'Wait for verification, or contact TravNexa if it needs changing.'
     );
   }
 
+  // Same reasoning as submitForQuote: the partner owes TravNexa the WHOLESALE amount only
+  // (baseFeeAtRequest × passengerCount, recovered here as sellingPrice - markupAmount), never
+  // the customer-facing sellingPrice. Stored as given, never coerced to the expected figure —
+  // partners legitimately part-pay or round.
+  const expected = computeAmountDue(visaRequest.sellingPrice, visaRequest.markupAmount);
   const paid = new Prisma.Decimal(amount);
+  const reconciliationMismatch = !paid.equals(expected);
 
   const screenshotPath = path
     .join(PAYMENT_UPLOAD_DIR_REL, path.basename(file.path))
@@ -339,7 +377,7 @@ async function submitForVisaRequest(visaRequestId, { transactionId, amount, note
         amount: paid,
         notes,
         screenshotPath,
-        reconciliationMismatch: false, // no price field on VisaRequest to reconcile against
+        reconciliationMismatch,
         status: 'PENDING_VERIFICATION',
       },
     });
@@ -437,6 +475,8 @@ async function submitForVisaRequest(visaRequestId, { transactionId, amount, note
 
   return {
     payment: fullPayment,
+    reconciliationMismatch,
+    expectedAmount: expected,
     message: VERIFICATION_SLA_MESSAGE,
   };
 }
@@ -667,7 +707,7 @@ async function requestInfo(id, adminRemarks, adminUser) {
       await notificationService.createNotification(
         partner.id,
         'INFO_REQUESTED',
-        `EMV needs more information about your payment for ${subject}: ${adminRemarks}`
+        `TravNexa needs more information about your payment for ${subject}: ${adminRemarks}`
       );
     },
     { label: 'payment info-requested notification' }

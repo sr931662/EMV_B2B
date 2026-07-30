@@ -1,8 +1,10 @@
 # DATA_MODELS.md
 
 Mirror of `backend/prisma/schema.prisma`, evolved across migrations `20260725120902_init_schema`
-through `20260725141349_add_visarequest_required_doc_snapshot` (step 9 — the admin CMS — added no
-new tables or columns; it is a pure read/write surface over the models already documented below).
+through `20260726082530_add_visa_pricing` (step 9 — the admin CMS — added no new tables or
+columns; it is a pure read/write surface over the models already documented below. The visa
+pricing migration, added after step 9, is the most recent schema change — see `VisaCountry` and
+`VisaRequest` below).
 See `PROJECT_SPEC.md` for the locked rules every model here must satisfy, and for the full
 step-by-step build history.
 
@@ -10,7 +12,7 @@ step-by-step build history.
 
 - **Soft-delete everywhere (locked rule 1).** Every table carries `archived Boolean @default(false)` and is indexed on `archived`, so default queries can filter it cheaply. Nothing is ever hard-deleted.
 - **All 17 foreign keys are `onDelete: Restrict`.** In a never-hard-delete system, `Restrict` turns an accidental `delete()` into a loud database error instead of a silent cascade. There is no `Cascade` anywhere by design.
-- **Copy-on-select, not linked (locked rule 2), applied three times.** `PackageDay`/`PackageHotel` (itinerary), `Quote.rawPriceAtQuote` (price), and `VisaDocumentUpload.documentName`/`VisaRequestRequiredDoc` (the visa checklist) all hold copied snapshots with **no** FK back to `DayTemplate`/`Hotel`/`Package`/`VisaRequiredDocument`. Editing the library, repricing a package, or reconfiguring a visa country's checklist can never mutate anything already built from it, and vice versa.
+- **Copy-on-select, not linked (locked rule 2), applied four times.** `PackageDay`/`PackageHotel` (itinerary), `Quote.rawPriceAtQuote` (package price), `VisaDocumentUpload.documentName`/`VisaRequestRequiredDoc` (the visa checklist), and `VisaRequest.baseFeeAtRequest` (visa price) all hold copied snapshots with **no** FK back to `DayTemplate`/`Hotel`/`Package`/`VisaRequiredDocument`/`VisaCountry`. Editing the library, repricing a package, reconfiguring a visa country's checklist, or repricing a visa country's fee can never mutate anything already built from it, and vice versa.
 - **Payment never gates PDFs (locked rule 3).** `Package.emvQuotePdfPath` and `Quote.pdfPath` are both independent of any `Payment` row. A `Quote` is fully usable with zero payments attached; `Payment` only drives the transition into `BOOKING_CONFIRMED`.
 - **IDs** are `String @id @default(uuid())`. **Money** is `Decimal @db.Decimal(12, 2)` (never float). **Calendar dates** (travel/DOB/passport expiry) are `@db.Date` to avoid timezone drift; audit `createdAt`/`updatedAt` are full timestamps.
 - Every model has `createdAt` / `updatedAt`.
@@ -103,7 +105,7 @@ step-by-step build history.
 - `id`, `type: PaymentType`
 - `quoteId?` (FK → `Quote`), `visaRequestId?` (FK → `VisaRequest`) — exactly one is set, matching `type`; enforced in the service layer
 - `transactionId`, `amount` (Decimal 12,2), `screenshotPath`, `notes?`
-- `reconciliationMismatch` (Boolean, default false) — for `type: PACKAGE`, set at submission when `amount` ≠ the quote's `sellingPrice`; stored rather than derived so it stays a frozen audit signal. Always `false` for `type: VISA` — `VisaRequest` carries no price/fee field anywhere in the schema, so there is nothing to reconcile a visa payment's amount against
+- `reconciliationMismatch` (Boolean, default false) — set at submission when `amount` ≠ the parent's `sellingPrice` (`Quote.sellingPrice` for `type: PACKAGE`, `VisaRequest.sellingPrice` for `type: VISA` — both carry the field now); stored rather than derived so it stays a frozen audit signal
 - `status: PaymentStatus` (default `PENDING_VERIFICATION`), `adminRemarks?`, `verifiedById?` (FK → `User`), `verifiedAt?`
 - Partial unique indexes (at most one **live** payment per parent, unraceable; raw SQL in the migrations since Prisma cannot express partial unique indexes):
   - `Payment_one_live_payment_per_quote` on `quoteId WHERE archived = false AND status IN ('PENDING_VERIFICATION','APPROVED')`
@@ -115,7 +117,9 @@ step-by-step build history.
 ### Visa services
 
 **`VisaCountry`** — a country EMV processes visas for.
-- `id`, `name` (unique), `archived`, timestamps
+- `id`, `name` (unique)
+- `baseFee` (Decimal 12,2, default 0) — admin-set wholesale fee per passenger. Frozen onto `VisaRequest.baseFeeAtRequest` at the moment a request is created (copy-on-select, rule 2, applied a fourth time) — repricing a country never moves an existing request's numbers
+- `archived`, timestamps
 - Relations: `requiredDocuments[]`, `visaRequests[]`
 
 **`VisaRequiredDocument`** — admin-configured checklist of documents a given country demands, each flagged mandatory or optional.
@@ -126,6 +130,8 @@ step-by-step build history.
 **`VisaRequest`** — one partner's visa application for one country, tracked through its own status ladder.
 - `id`, `partnerId` (FK → `User`), `visaCountryId` (FK → `VisaCountry`), `applicationNumber` (unique)
 - `status: VisaRequestStatus` (default `APPLICATION_SUBMITTED`)
+- `baseFeeAtRequest` (Decimal 12,2, default 0) — the country's `baseFee` **frozen** at request creation; all pricing maths uses this, never the live `VisaCountry.baseFee`
+- `markupAmount` (Decimal 12,2, default 0), `sellingPrice` (Decimal 12,2, default 0) — `sellingPrice = baseFeeAtRequest × passengerCount + markupAmount`, recomputed server-side whenever passengers and/or markupAmount are edited. `passengerCount` is not a stored column — it's the live count of non-archived `VisaPassenger` rows, which can only change while `status = APPLICATION_SUBMITTED` (same lock passengers already had), so it's fixed by construction once payment starts
 - `archived`, timestamps
 - Relations: `passengers[]`, `payments[]`, `requiredDocSnapshot[]` (→ `VisaRequestRequiredDoc`)
 - Indexes: `partnerId`, `visaCountryId`, `status`, `archived`

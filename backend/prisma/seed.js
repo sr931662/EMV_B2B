@@ -14,15 +14,15 @@ const ADMIN_PASSWORD = 'Admin@123';
 const EMAIL_TEMPLATES = [
   {
     name: 'partner_welcome_otp',
-    subject: 'Verify your Ease My Vacations partner account',
+    subject: 'Verify your TravNexa Global partner account',
     body: `<p>Hello {{companyName}},</p>
-<p>Thanks for registering with Ease My Vacations. Use the code below to verify your account:</p>
+<p>Thanks for registering with TravNexa Global. Use the code below to verify your account:</p>
 <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">{{otp}}</p>
 <p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>`,
   },
   {
     name: 'partner_password_reset',
-    subject: 'Reset your Ease My Vacations password',
+    subject: 'Reset your TravNexa Global password',
     body: `<p>Hello,</p>
 <p>We received a request to reset the password for {{email}}. Use the code below to continue:</p>
 <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">{{otp}}</p>
@@ -132,7 +132,7 @@ const EMAIL_TEMPLATES = [
     body: `<p>Hello {{companyName}},</p>
 <p>Your visa application <strong>{{applicationNumber}}</strong> has been rejected.</p>
 <p>Reason: {{remarks}}</p>
-<p>Please contact Ease My Vacations if you have questions, or submit a new application if you'd like to try again.</p>`,
+<p>Please contact TravNexa Global if you have questions, or submit a new application if you'd like to try again.</p>`,
   },
 ];
 
@@ -172,10 +172,42 @@ async function seedAdmin() {
   console.log(`[seed] password: ${ADMIN_PASSWORD} — change it after first login.`);
 }
 
-// Both steps are independent and both idempotent — neither should short-circuit the other.
+// Display name changed "Ease My Vacations" -> "TravNexa Global" (see the branding note at the
+// top of PROJECT_SPEC.md). seedEmailTemplates() above is deliberately create-only, so a rename
+// needs its own pass — but it must NOT overwrite a row with the seed defaults (that would
+// clobber any wording an admin has since hand-edited via the CMS). Instead this does a targeted
+// string replace on whatever text is CURRENTLY in each row, leaving everything else untouched.
+// Idempotent: once no row contains the old string, re-running finds nothing and is a no-op.
+// Covers archived rows too (no archived filter), so nothing is left inconsistent.
+async function rebrandEmailTemplates() {
+  const OLD_BRAND = 'Ease My Vacations';
+  const NEW_BRAND = 'TravNexa Global';
+
+  const rows = await prisma.emailTemplate.findMany({
+    where: { OR: [{ subject: { contains: OLD_BRAND } }, { body: { contains: OLD_BRAND } }] },
+  });
+
+  for (const row of rows) {
+    await prisma.emailTemplate.update({
+      where: { id: row.id },
+      data: {
+        subject: row.subject.split(OLD_BRAND).join(NEW_BRAND),
+        body: row.body.split(OLD_BRAND).join(NEW_BRAND),
+      },
+    });
+    console.log(`[seed] rebranded email template "${row.name}"`);
+  }
+
+  if (!rows.length) {
+    console.log('[seed] rebrandEmailTemplates: no rows contained the old brand name — nothing to do.');
+  }
+}
+
+// All three steps are independent and idempotent — none should short-circuit the others.
 async function main() {
   await seedAdmin();
   await seedEmailTemplates();
+  await rebrandEmailTemplates();
 }
 
 main()

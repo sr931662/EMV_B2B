@@ -357,6 +357,11 @@ model VisaCountry {
   id   String @id @default(uuid())
   name String @unique
 
+  // Wholesale per-passenger visa fee the admin sets. Frozen into VisaRequest.baseFeeAtRequest
+  // at the moment a request is created (copy-on-select, rule 2, applied a fourth time) — an
+  // admin repricing a country must never move an existing request's numbers.
+  baseFee Decimal @db.Decimal(12, 2) @default(0)
+
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -391,6 +396,22 @@ model VisaRequest {
   applicationNumber String @unique
 
   status VisaRequestStatus @default(APPLICATION_SUBMITTED)
+
+  // The country's baseFee FROZEN at the instant this request was created — copy-on-select
+  // (rule 2) applied to visa pricing, the same principle as Quote.rawPriceAtQuote. All
+  // selling-price maths uses THIS column, never the live VisaCountry.baseFee, so an admin
+  // repricing a country can never move the numbers on a request already in flight.
+  // passengerCount is NOT stored separately: passengers can only be edited while
+  // APPLICATION_SUBMITTED (see visaRequestService.EDITABLE_STATUSES), so the live count of
+  // non-archived VisaPassenger rows IS the count basis right up until payment locks everything —
+  // at which point passengers can no longer change, so the count is fixed by construction.
+  baseFeeAtRequest Decimal @db.Decimal(12, 2) @default(0)
+
+  // Partner's profit. sellingPrice = baseFeeAtRequest * passengerCount + markupAmount, computed
+  // server-side on create and recomputed (from the snapshot fee, never live) whenever passengers
+  // and/or markupAmount are edited.
+  markupAmount Decimal @db.Decimal(12, 2) @default(0)
+  sellingPrice Decimal @db.Decimal(12, 2) @default(0)
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())

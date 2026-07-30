@@ -34,13 +34,16 @@ const CAN_READ_QUOTES = ['partner', 'admin'];
 const CAN_SUBMIT_PAYMENT = ['partner'];
 const CAN_VERIFY_PAYMENT = ['admin'];
 
-// Visa services (build step 7).
+// Visa services (build step 7; pricing added later).
 //
-// Country + required-document config: admin write, but read is open to every authenticated
-// role — partners need the checklist to know what to upload, and unlike packages there is no
-// pricing data here for data_feeder to be kept away from.
+// Country + required-document config: admin write; read was originally open to every
+// authenticated role on the reasoning that "unlike packages there is no pricing data here for
+// data_feeder to be kept away from" — that stopped being true the moment VisaCountry.baseFee
+// (wholesale per-passenger fee) was added. data_feeder is now excluded, same as packages:
+// interns get the checklist-only view they actually need via the library, not raw wholesale
+// pricing. Partners still need the checklist to know what to upload, so they keep read access.
 const CAN_WRITE_VISA_CONFIG = ['admin'];
-const CAN_READ_VISA_CONFIG = ['admin', 'data_feeder', 'partner'];
+const CAN_READ_VISA_CONFIG = ['admin', 'partner'];
 
 // Visa requests: partner-only write (it's the partner's own application, like a quote), admin
 // read for verification/back-office. Every single-request operation additionally enforces

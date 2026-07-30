@@ -19,8 +19,8 @@ const submitForQuote = asyncHandler(async (req, res) => {
       expectedAmount,
       reconciliationMismatch,
       note: reconciliationMismatch
-        ? 'Amount differs from the quote total — flagged for the EMV team to review.'
-        : 'Amount matches the quote total.',
+        ? 'Amount differs from the wholesale amount owed to TravNexa — flagged for review. (This is not the quote total shown to your customer — it excludes your markup.)'
+        : 'Amount matches the wholesale amount owed to TravNexa.',
     },
     payment: {
       id: payment.id,
