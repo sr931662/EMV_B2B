@@ -1,68 +1,207 @@
 @import 'tailwindcss';
 
-/*
- * Design tokens — Tailwind v4's CSS-first config. There is no tailwind.config.js: v4 detects
- * template content automatically via the Vite plugin, and theme customization lives here in
- * an `@theme` block instead of a JS file. Every `--color-*` variable below becomes real
- * utilities for free (bg-primary-600, text-neutral-700, border-primary-200, etc).
+/* ===========================================================================
+ * TravNexa Global — design tokens
+ * ---------------------------------------------------------------------------
+ * Tailwind v4 CSS-first config. There is no tailwind.config.js: v4 detects
+ * template content via the Vite plugin, and theme customization lives in the
+ * `@theme` block below. Every `--color-*` / `--shadow-*` / `--radius-*` here
+ * becomes a real utility for free (bg-primary-600, shadow-card, rounded-2xl…).
  *
- * Palette: a "travel/trust" feel — deep blue-teal primary, clean neutral grays, restrained
- * semantic colors for status (success/warning/danger/info). `primary-600` (#0f5c7a) is the
- * exact accent color already used in the backend-generated PDF quotes
- * (backend/src/services/pdfService.js), so the brand is visually consistent between the app
- * and the documents it produces.
- */
+ * LOCKED CONSTRAINT: `--color-primary-600` must stay #0f5c7a. That exact hex is
+ * the accent used by the backend's generated PDF quotes
+ * (backend/src/services/pdfService.js), so the app and the documents it produces
+ * read as the same brand. The rest of the ramp is rebuilt around it.
+ *
+ * Direction: deep marine-teal primary + a restrained champagne accent for
+ * premium highlights, on high-contrast cool-slate neutrals. Elevation uses soft
+ * layered shadows (never a single hard drop) plus hairline borders — that pairing
+ * is what separates a premium surface from a generic card.
+ * ======================================================================== */
 @theme {
+  /* ---- Typography ---------------------------------------------------- */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, monospace;
 
-  --color-primary-50: #eef7fb;
-  --color-primary-100: #d7ecf3;
-  --color-primary-200: #b3d9e8;
-  --color-primary-300: #82bfd8;
-  --color-primary-400: #4f9dc0;
-  --color-primary-500: #2c7ea5;
-  --color-primary-600: #0f5c7a;
-  --color-primary-700: #0c4a63;
-  --color-primary-800: #0a3a4e;
-  --color-primary-900: #082c3c;
-  --color-primary-950: #051c27;
+  /* Tighter tracking on display sizes — loose tracking is the most common
+   * reason a heading looks "default" rather than designed. */
+  --tracking-tighter: -0.032em;
+  --tracking-tight: -0.018em;
+  --tracking-wide: 0.02em;
+  --tracking-widest: 0.14em;
 
-  --color-neutral-50: #f8fafc;
-  --color-neutral-100: #f1f5f9;
-  --color-neutral-200: #e2e8f0;
-  --color-neutral-300: #cbd5e1;
-  --color-neutral-400: #94a3b8;
+  /* ---- Brand: deep marine teal --------------------------------------- */
+  --color-primary-50: #f0f9fc;
+  --color-primary-100: #dcf0f8;
+  --color-primary-200: #bae1ef;
+  --color-primary-300: #8acae2;
+  --color-primary-400: #52aacd;
+  --color-primary-500: #2a89ae;
+  --color-primary-600: #0f5c7a; /* LOCKED — matches pdfService.js */
+  --color-primary-700: #0d4d67;
+  --color-primary-800: #0e4055;
+  --color-primary-900: #0f3547;
+  --color-primary-950: #071f2b;
+
+  /* ---- Accent: champagne. Used sparingly for premium cues, never as a
+   *      primary action colour. ---------------------------------------- */
+  --color-accent-50: #fdfaf0;
+  --color-accent-100: #f9f1d8;
+  --color-accent-200: #f2e0ac;
+  --color-accent-300: #e8c976;
+  --color-accent-400: #ddb04a;
+  --color-accent-500: #c9962b;
+  --color-accent-600: #a97721;
+  --color-accent-700: #85591d;
+  --color-accent-800: #6d481e;
+  --color-accent-900: #5c3d1d;
+
+  /* ---- Neutrals: cool slate, pushed darker at the top end for contrast */
+  --color-neutral-50: #f8fafb;
+  --color-neutral-100: #f1f4f8;
+  --color-neutral-150: #e9eef4;
+  --color-neutral-200: #e1e8f0;
+  --color-neutral-300: #cad5e2;
+  --color-neutral-400: #94a3b6;
   --color-neutral-500: #64748b;
-  --color-neutral-600: #475569;
-  --color-neutral-700: #334155;
-  --color-neutral-800: #1e293b;
-  --color-neutral-900: #0f172a;
-  --color-neutral-950: #020617;
+  --color-neutral-600: #47566b;
+  --color-neutral-700: #334154;
+  --color-neutral-800: #1d2735;
+  --color-neutral-900: #0f1826;
+  --color-neutral-950: #070d16;
 
-  --color-success-50: #f0fdf4;
-  --color-success-500: #22c55e;
-  --color-success-600: #16a34a;
-  --color-success-700: #15803d;
+  /* ---- Semantic status ----------------------------------------------- */
+  --color-success-50: #effdf4;
+  --color-success-100: #d8f9e4;
+  --color-success-200: #b2f0cb;
+  --color-success-500: #1fab5f;
+  --color-success-600: #15904e;
+  --color-success-700: #12713f;
 
-  --color-warning-50: #fffbeb;
-  --color-warning-500: #f59e0b;
-  --color-warning-600: #d97706;
-  --color-warning-700: #b45309;
+  --color-warning-50: #fffaeb;
+  --color-warning-100: #fef1c7;
+  --color-warning-200: #fde389;
+  --color-warning-500: #f0a017;
+  --color-warning-600: #d1810b;
+  --color-warning-700: #a55d0c;
 
-  --color-danger-50: #fef2f2;
-  --color-danger-500: #ef4444;
-  --color-danger-600: #dc2626;
-  --color-danger-700: #b91c1c;
+  --color-danger-50: #fef3f2;
+  --color-danger-100: #fee2e0;
+  --color-danger-200: #fecac6;
+  --color-danger-300: #fca9a3;
+  --color-danger-500: #ef4b46;
+  --color-danger-600: #db2c2c;
+  --color-danger-700: #b71f22;
 
-  --color-info-50: #f0f9ff;
-  --color-info-500: #0ea5e9;
-  --color-info-600: #0284c7;
-  --color-info-700: #0369a1;
+  --color-info-50: #eff8ff;
+  --color-info-100: #d9edff;
+  --color-info-200: #b9dfff;
+  --color-info-500: #2b9bf0;
+  --color-info-600: #157cd4;
+  --color-info-700: #1462ab;
+
+  /* ---- Radii --------------------------------------------------------- */
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+  --radius-3xl: 1.5rem;
+
+  /* ---- Elevation: layered, tinted with the brand hue rather than pure
+   *      black, so shadows sit in the palette instead of muddying it. --- */
+  --shadow-xs: 0 1px 2px 0 rgb(15 24 38 / 0.05);
+  --shadow-sm: 0 1px 2px 0 rgb(15 24 38 / 0.04), 0 1px 3px 0 rgb(15 24 38 / 0.06);
+  --shadow-card: 0 1px 2px 0 rgb(15 24 38 / 0.04), 0 4px 12px -2px rgb(15 24 38 / 0.06);
+  --shadow-md: 0 2px 4px -1px rgb(15 24 38 / 0.05), 0 8px 20px -4px rgb(15 24 38 / 0.09);
+  --shadow-lg: 0 4px 8px -2px rgb(15 24 38 / 0.06), 0 16px 32px -8px rgb(15 24 38 / 0.12);
+  --shadow-xl: 0 8px 16px -4px rgb(15 24 38 / 0.08), 0 28px 56px -12px rgb(15 24 38 / 0.18);
+  --shadow-ring: 0 0 0 1px rgb(15 24 38 / 0.06);
+  --shadow-focus: 0 0 0 3px rgb(15 92 122 / 0.16);
+
+  /* ---- Motion -------------------------------------------------------- */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+
+  --animate-fade-in: fade-in 0.18s var(--ease-out-quint) both;
+  --animate-scale-in: scale-in 0.2s var(--ease-out-quint) both;
+  --animate-slide-up: slide-up 0.22s var(--ease-out-quint) both;
+  --animate-slide-in-right: slide-in-right 0.24s var(--ease-out-quint) both;
+  --animate-drawer-in: drawer-in 0.26s var(--ease-out-quint) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
 }
 
+/* Off-canvas navigation drawer entering from the left edge. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+/* ===========================================================================
+ * Base
+ * ======================================================================== */
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
-    @apply bg-neutral-50 text-neutral-800 antialiased;
+    @apply bg-neutral-100 text-neutral-700 antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    font-optical-sizing: auto;
   }
 
   h1,
@@ -70,5 +209,107 @@
   h3,
   h4 {
     @apply font-semibold text-neutral-900;
+    letter-spacing: var(--tracking-tight);
+    text-wrap: balance;
+  }
+
+  h1 {
+    letter-spacing: var(--tracking-tighter);
+  }
+
+  /* Money, counts and dates line up in columns without hand-tuning widths. */
+  th,
+  td {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    @apply bg-primary-600/15 text-primary-900;
+  }
+
+  /* Slim, unobtrusive scrollbars — default Windows chrome is the loudest
+   * "unstyled app" tell on this platform. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-neutral-300) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-neutral-300);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-neutral-400);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ===========================================================================
+ * Reusable surface treatments. These live as classes rather than utility soup
+ * repeated at each call site because they encode the *system* — a card and a
+ * modal must share one elevation language or the UI stops feeling designed.
+ * ======================================================================== */
+@layer components {
+  /* Hairline + layered shadow. The inset top highlight is what makes a white
+   * surface read as lifted rather than pasted on. */
+  .surface {
+    @apply border border-neutral-200/80 bg-white;
+    box-shadow: var(--shadow-card), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
+  }
+
+  .surface-muted {
+    @apply border border-neutral-200/70 bg-neutral-50;
+  }
+
+  /* Dark chrome for the sidebar and the auth split panel. The gradient is
+   * deliberately low-contrast — flat near-black looks cheap at large sizes. */
+  .surface-deep {
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgb(42 137 174 / 0.22) 0%, transparent 55%),
+      linear-gradient(168deg, var(--color-primary-900) 0%, var(--color-neutral-950) 100%);
+  }
+
+  /* Subtle brand wash for empty states and hero strips. */
+  .surface-wash {
+    background:
+      radial-gradient(90% 120% at 0% 0%, rgb(15 92 122 / 0.06) 0%, transparent 60%),
+      radial-gradient(80% 100% at 100% 0%, rgb(201 150 43 / 0.07) 0%, transparent 55%),
+      #ffffff;
+  }
+
+  /* Loading placeholder — a moving sheen, not a pulsing grey block. */
+  .skeleton {
+    @apply rounded-md;
+    background-image: linear-gradient(
+      90deg,
+      var(--color-neutral-150) 0%,
+      var(--color-neutral-100) 40%,
+      var(--color-neutral-200) 60%,
+      var(--color-neutral-150) 100%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
   }
 }

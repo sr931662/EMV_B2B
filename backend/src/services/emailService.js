@@ -4,8 +4,8 @@ const prisma = require('../utils/prisma');
 // Transport abstraction
 // ---------------------------------------------------------------------------
 //
-// Chosen by EMAIL_TRANSPORT ('console' by default, 'smtp' when creds exist). Both transports
-// expose the same shape: async send({ to, subject, html, text }).
+// Chosen by EMAIL_TRANSPORT ('console' by default, 'smtp' for a generic SMTP relay, 'ses' for
+// Amazon SES). Every transport exposes the same shape: async send({ to, subject, html, text }).
 
 function consoleTransport() {
   return {
@@ -43,9 +43,83 @@ function smtpTransport() {
   };
 }
 
+/**
+ * Amazon SES via the AWS SDK (SESv2 SendEmail).
+ *
+ * Deliberately the SDK and not SES's SMTP endpoint: on ECS Fargate the task assumes an IAM role,
+ * so the SDK picks up short-lived rotating credentials from the container credentials provider and
+ * there is no SMTP username/password to store in Secrets Manager or rotate. Locally the same code
+ * path works off `aws configure` / AWS_PROFILE / env vars, so dev and prod behave identically.
+ *
+ * The client is created lazily and cached across calls: constructing it resolves the credential
+ * chain, which must not happen at import time (that would make app boot depend on AWS being
+ * reachable) but also must not repeat per email.
+ */
+let cachedSesClient = null;
+
+function sesTransport() {
+  const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
+
+  if (!cachedSesClient) {
+    // Region: AWS_REGION is set for us by ECS. SES_REGION exists as an override for the case where
+    // the sending identity lives in a different region from the rest of the stack.
+    cachedSesClient = new SESv2Client({
+      region: process.env.SES_REGION || process.env.AWS_REGION || 'ap-south-1',
+    });
+  }
+
+  return {
+    async send({ to, subject, html, text }) {
+      const command = new SendEmailCommand({
+        // Must be a verified identity (domain or address) in this region, or SES rejects the call.
+        FromEmailAddress: process.env.SES_FROM_ADDRESS || process.env.SMTP_FROM,
+        Destination: { ToAddresses: [to] },
+        ...(process.env.SES_REPLY_TO ? { ReplyToAddresses: [process.env.SES_REPLY_TO] } : {}),
+        // A configuration set is what routes bounce/complaint/delivery events to SNS and keeps
+        // reputation metrics. Optional so the transport still works before one is created.
+        ...(process.env.SES_CONFIGURATION_SET
+          ? { ConfigurationSetName: process.env.SES_CONFIGURATION_SET }
+          : {}),
+        Content: {
+          Simple: {
+            Subject: { Data: subject, Charset: 'UTF-8' },
+            Body: {
+              Html: { Data: html, Charset: 'UTF-8' },
+              // SES accepts a text part only if non-empty; stripTags can return '' for an
+              // empty template body, and an empty Data field is a validation error.
+              ...(text ? { Text: { Data: text, Charset: 'UTF-8' } } : {}),
+            },
+          },
+        },
+      });
+
+      const result = await cachedSesClient.send(command);
+      // The message id is the only handle for tracing a delivery in SES event logs, so it is worth
+      // a line in CloudWatch.
+      console.log(`[email:ses] sent to ${to} (messageId=${result.MessageId})`);
+    },
+  };
+}
+
+const TRANSPORTS = {
+  console: consoleTransport,
+  smtp: smtpTransport,
+  ses: sesTransport,
+};
+
 function getTransport() {
   const kind = (process.env.EMAIL_TRANSPORT || 'console').toLowerCase();
-  return kind === 'smtp' ? smtpTransport() : consoleTransport();
+  const factory = TRANSPORTS[kind];
+
+  if (!factory) {
+    console.error(
+      `[emailService] unknown EMAIL_TRANSPORT "${kind}" — falling back to console. ` +
+        `Valid values: ${Object.keys(TRANSPORTS).join(', ')}`
+    );
+    return consoleTransport();
+  }
+
+  return factory();
 }
 
 /**

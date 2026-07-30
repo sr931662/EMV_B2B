@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Alert, Badge, Card, Select, Spinner } from '../../components/ui';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  Alert,
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Select,
+  Skeleton,
+  Table,
+} from '../../components/ui';
 import VisaSubNav from '../../components/admin/VisaSubNav';
 import { apiGet, ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../lib/format';
@@ -17,6 +26,7 @@ const STATUS_OPTIONS = [
 ];
 
 function AdminVisaRequestsPage() {
+  const navigate = useNavigate();
   const [status, setStatus] = useState('');
   const [requests, setRequests] = useState([]);
   const [count, setCount] = useState(0);
@@ -49,64 +59,90 @@ function AdminVisaRequestsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-neutral-900">Visa Requests</h1>
+      <PageHeader
+        eyebrow="Operations"
+        title="Visa Requests"
+        subtitle="Every application across all partner agencies, from submission to completion."
+      />
 
       <VisaSubNav />
 
-      <Card bodyClassName="max-w-xs">
-        <Select label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)} options={STATUS_OPTIONS} />
+      <Card bodyClassName="flex flex-wrap items-end gap-4 p-4">
+        <Select
+          label="Filter by status"
+          className="w-full sm:w-72"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          options={STATUS_OPTIONS}
+        />
+        {!loading && (
+          <p className="pb-2.5 text-[13px] text-neutral-500">
+            <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> request
+            {count === 1 ? '' : 's'}
+          </p>
+        )}
       </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
-      <p className="text-sm text-neutral-500">
-        {loading ? 'Loading…' : `${count} request${count === 1 ? '' : 's'}`}
-      </p>
-
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      ) : requests.length === 0 ? (
-        <Card bodyClassName="py-10 text-center">
-          <p className="text-neutral-500">No visa requests match this filter.</p>
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={6} cols={6} />
         </Card>
+      ) : requests.length === 0 ? (
+        <EmptyState
+          icon="plane"
+          title="No visa requests match this filter"
+          description={
+            status
+              ? 'Try a different status, or clear the filter to see every application.'
+              : 'No agency has submitted a visa application yet.'
+          }
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                  <th className="px-5 py-3 font-medium">Application</th>
-                  <th className="px-5 py-3 font-medium">Agency</th>
-                  <th className="px-5 py-3 font-medium">Country</th>
-                  <th className="px-5 py-3 font-medium">Passengers</th>
-                  <th className="px-5 py-3 font-medium">Selling Price</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map((r) => (
-                  <tr key={r.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
-                    <td className="px-5 py-3">
-                      <Link to={`/admin/visa-requests/${r.id}`} className="font-medium text-primary-700">
-                        {r.applicationNumber}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3 text-neutral-700">{r.agencyName ?? '—'}</td>
-                    <td className="px-5 py-3 text-neutral-700">{r.countryName}</td>
-                    <td className="px-5 py-3 text-neutral-700">{r.passengerCount}</td>
-                    <td className="px-5 py-3 text-neutral-700">{formatCurrency(r.sellingPrice)}</td>
-                    <td className="px-5 py-3">
-                      <Badge status={r.status} />
-                    </td>
-                    <td className="px-5 py-3 text-neutral-500">{formatDate(r.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table minWidth="54rem">
+            <Table.Head>
+              <Table.HeadCell>Application</Table.HeadCell>
+              <Table.HeadCell>Agency</Table.HeadCell>
+              <Table.HeadCell>Country</Table.HeadCell>
+              <Table.HeadCell align="right">Passengers</Table.HeadCell>
+              <Table.HeadCell align="right">Selling price</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+              <Table.HeadCell align="right">Created</Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
+              {requests.map((r) => (
+                <Table.Row
+                  key={r.id}
+                  interactive
+                  onClick={() => navigate(`/admin/visa-requests/${r.id}`)}
+                >
+                  <Table.Cell strong>
+                    <Link
+                      to={`/admin/visa-requests/${r.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="font-mono text-[12px] text-primary-700 hover:underline"
+                    >
+                      {r.applicationNumber}
+                    </Link>
+                  </Table.Cell>
+                  <Table.Cell>{r.agencyName ?? '—'}</Table.Cell>
+                  <Table.Cell>{r.countryName}</Table.Cell>
+                  <Table.Cell align="right">{r.passengerCount}</Table.Cell>
+                  <Table.Cell align="right" strong>
+                    {formatCurrency(r.sellingPrice)}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Badge status={r.status} />
+                  </Table.Cell>
+                  <Table.Cell align="right" muted>
+                    {formatDate(r.createdAt)}
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
         </Card>
       )}
     </div>

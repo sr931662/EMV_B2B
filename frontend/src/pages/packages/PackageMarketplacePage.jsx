@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Input, Select, Spinner } from '../../components/ui';
+import {
+  Alert,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Input,
+  PageHeader,
+  Select,
+  Skeleton,
+} from '../../components/ui';
 import PackageCard from '../../components/packages/PackageCard';
 import { apiGet, ApiError } from '../../api/client';
 
@@ -81,15 +91,31 @@ function PackageMarketplacePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-neutral-900">Browse Packages</h1>
+      <PageHeader
+        eyebrow="Marketplace"
+        title="Browse Packages"
+        subtitle="Wholesale-priced inventory ready to quote under your own brand."
+      />
 
-      <Card>
+      <Card
+        title="Filters"
+        icon={<Icon name="filter" size={15} />}
+        actions={
+          hasActiveFilters ? (
+            <Button variant="ghost" size="sm" onClick={() => setFilters(INITIAL_FILTERS)}>
+              <Icon name="x" size={14} />
+              Clear all
+            </Button>
+          ) : null
+        }
+      >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Input
             label="Search"
-            placeholder="Package title..."
+            placeholder="Package title…"
             value={filters.search}
             onChange={setField('search')}
+            leading={<Icon name="search" size={15} />}
           />
           <Select
             label="Destination"
@@ -111,6 +137,7 @@ function PackageMarketplacePage() {
               label="Min price"
               type="number"
               min="0"
+              placeholder="0"
               value={filters.minPrice}
               onChange={setField('minPrice')}
             />
@@ -118,6 +145,7 @@ function PackageMarketplacePage() {
               label="Max price"
               type="number"
               min="0"
+              placeholder="Any"
               value={filters.maxPrice}
               onChange={setField('maxPrice')}
             />
@@ -127,6 +155,7 @@ function PackageMarketplacePage() {
               label="Min days"
               type="number"
               min="1"
+              placeholder="1"
               value={filters.minDays}
               onChange={setField('minDays')}
             />
@@ -134,39 +163,53 @@ function PackageMarketplacePage() {
               label="Max days"
               type="number"
               min="1"
+              placeholder="Any"
               value={filters.maxDays}
               onChange={setField('maxDays')}
             />
-          </div>
-          <div className="flex items-end">
-            <Button variant="outline" onClick={() => setFilters(INITIAL_FILTERS)} disabled={!hasActiveFilters}>
-              Clear filters
-            </Button>
           </div>
         </div>
       </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-neutral-500">
-          {loading ? 'Loading…' : `${count} package${count === 1 ? '' : 's'} found`}
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[13px] text-neutral-500">
+          {loading ? (
+            'Searching…'
+          ) : (
+            <>
+              <span className="font-semibold text-neutral-900 tabular-nums">{count}</span>{' '}
+              package{count === 1 ? '' : 's'} found
+            </>
+          )}
         </p>
       </div>
 
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Skeleton.Card key={i} />
+          ))}
         </div>
       ) : packages.length === 0 ? (
-        <Card bodyClassName="text-center py-10">
-          <p className="text-neutral-500">No packages match your filters.</p>
-          {hasActiveFilters && (
-            <Button variant="outline" className="mt-4" onClick={() => setFilters(INITIAL_FILTERS)}>
-              Clear filters
-            </Button>
-          )}
-        </Card>
+        <EmptyState
+          icon="search"
+          title="No packages match your filters"
+          description={
+            hasActiveFilters
+              ? 'Try widening your price or duration range, or clearing a filter.'
+              : 'No packages have been published yet. Check back shortly.'
+          }
+          action={
+            hasActiveFilters ? (
+              <Button variant="outline" onClick={() => setFilters(INITIAL_FILTERS)}>
+                Clear filters
+              </Button>
+            ) : null
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {packages.map((pkg) => (

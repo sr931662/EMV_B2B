@@ -1,0 +1,31 @@
+# Never ship secrets into an image — an image layer is readable by anyone who can pull it.
+.env
+.env.*
+!.env.example
+
+# Installed fresh in the image for the correct platform. Copying the host's node_modules would
+# also copy the host-specific Prisma query engine binary, which fails at runtime in the container.
+node_modules
+
+# Uploaded files and generated PDFs. These are runtime state, not build input, and baking the
+# local dev copies into the image would ship real payment screenshots to the registry.
+storage
+
+# Local/dev noise
+temp
+.git
+.gitignore
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editor / tooling
+.vscode
+.idea
+
+# Docs and infra don't affect the runtime image
+Dockerfile
+.dockerignore
+README.md
+*.md

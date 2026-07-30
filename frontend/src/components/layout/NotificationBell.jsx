@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { Spinner } from '../ui';
+import { Icon, Spinner } from '../ui';
 import { apiGet, apiPost, apiDelete } from '../../api/client';
 import { formatDateTime } from '../../lib/format';
 import { cn } from '../../lib/cn';
 
 const POLL_INTERVAL_MS = 60_000;
 
-/** Top-nav bell: unread badge (polled), click-to-open panel, mark read/all-read, dismiss. */
+/**
+ * Topbar bell: unread badge (polled), click-to-open panel, mark read/all-read, dismiss.
+ *
+ * All mutations are optimistic — the list updates immediately and the request is fire-and-forget,
+ * because a notification panel that blocks on a round-trip to grey out one row feels broken. A
+ * stale count self-corrects on the next poll.
+ *
+ * The panel is anchored right and width-capped to the viewport on small screens so it can't push
+ * the page sideways; on desktop it's a fixed 22rem card.
+ */
 function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -34,8 +43,16 @@ function NotificationBell() {
     const handleClickOutside = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
     };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   const loadNotifications = () => {
@@ -55,9 +72,7 @@ function NotificationBell() {
   };
 
   const handleMarkRead = async (notificationId) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
-    );
+    setNotifications((prev) => prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n)));
     setUnreadCount((c) => Math.max(0, c - 1));
     try {
       await apiPost(`/api/notifications/${notificationId}/read`);
@@ -95,63 +110,99 @@ function NotificationBell() {
       <button
         type="button"
         onClick={togglePanel}
-        aria-label="Notifications"
-        className="relative rounded-full p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+        aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+        aria-expanded={open}
+        className={cn(
+          'relative rounded-lg p-2 transition-colors',
+          open ? 'bg-neutral-150 text-neutral-800' : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
+        )}
       >
-        🔔
+        <Icon name="bell" size={19} />
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger-600 px-1 text-[10px] font-semibold text-white">
+          <span
+            className={cn(
+              'absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full',
+              'bg-danger-600 px-1 text-[10px] font-semibold tabular-nums text-white',
+              // White ring separates the badge from the icon strokes behind it.
+              'ring-2 ring-white'
+            )}
+          >
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-80 rounded-xl border border-neutral-200 bg-white shadow-lg">
-          <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
+        <div
+          className={cn(
+            'absolute right-0 z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] animate-scale-in origin-top-right',
+            'overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-neutral-900/5'
+          )}
+        >
+          <div className="flex items-center justify-between border-b border-neutral-200/80 px-4 py-3">
             <span className="text-sm font-semibold text-neutral-900">Notifications</span>
             {hasUnread && (
               <button
                 type="button"
                 onClick={handleMarkAllRead}
-                className="text-xs font-medium text-primary-600 hover:text-primary-700"
+                className="rounded-md px-1.5 py-0.5 text-[12px] font-medium text-primary-600 transition-colors hover:bg-primary-50 hover:text-primary-700"
               >
                 Mark all read
               </button>
             )}
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[26rem] overflow-y-auto">
             {loading ? (
-              <div className="flex justify-center py-6">
+              <div className="flex justify-center py-8">
                 <Spinner />
               </div>
             ) : notifications.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-neutral-500">No notifications yet.</p>
+              <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                <span className="flex size-9 items-center justify-center rounded-full bg-neutral-100 text-neutral-400">
+                  <Icon name="bell" size={17} />
+                </span>
+                <p className="text-sm text-neutral-500">You&apos;re all caught up.</p>
+              </div>
             ) : (
               notifications.map((n) => (
                 <div
                   key={n.id}
                   className={cn(
-                    'flex items-start gap-2 border-b border-neutral-100 px-4 py-3 last:border-0',
-                    !n.isRead && 'bg-primary-50/60'
+                    'group relative flex items-start gap-2.5 border-b border-neutral-150 px-4 py-3 transition-colors last:border-0',
+                    n.isRead ? 'hover:bg-neutral-50' : 'bg-primary-50/50 hover:bg-primary-50'
                   )}
                 >
+                  {/* Unread marker doubles as the alignment anchor for the text block. */}
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'mt-1.5 size-1.5 shrink-0 rounded-full',
+                      n.isRead ? 'bg-transparent' : 'bg-primary-500'
+                    )}
+                  />
                   <button
                     type="button"
                     onClick={() => !n.isRead && handleMarkRead(n.id)}
-                    className="flex-1 text-left"
+                    className="min-w-0 flex-1 text-left"
                   >
-                    <p className="text-sm text-neutral-800">{n.message}</p>
-                    <p className="mt-1 text-xs text-neutral-400">{formatDateTime(n.createdAt)}</p>
+                    <p
+                      className={cn(
+                        'text-[13px] leading-snug',
+                        n.isRead ? 'text-neutral-600' : 'font-medium text-neutral-900'
+                      )}
+                    >
+                      {n.message}
+                    </p>
+                    <p className="mt-1 text-[11px] text-neutral-400">{formatDateTime(n.createdAt)}</p>
                   </button>
                   <button
                     type="button"
                     onClick={(e) => handleArchive(n.id, e)}
                     aria-label="Dismiss"
-                    className="text-neutral-300 hover:text-neutral-500"
+                    className="shrink-0 rounded-md p-1 text-neutral-300 opacity-0 transition-all hover:bg-neutral-200/70 hover:text-neutral-600 focus-visible:opacity-100 group-hover:opacity-100"
                   >
-                    ✕
+                    <Icon name="x" size={14} />
                   </button>
                 </div>
               ))

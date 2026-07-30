@@ -99,11 +99,11 @@ function EmailTemplateEditPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Link to="/admin/templates" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+      <Link to="/admin/templates" className="-ml-1 inline-flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium text-neutral-500 transition-colors hover:text-primary-700">
         &larr; Back to templates
       </Link>
 
-      <h1 className="text-2xl font-semibold text-neutral-900">
+      <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">
         {isEdit ? 'Edit Email Template' : 'New Email Template'}
       </h1>
 

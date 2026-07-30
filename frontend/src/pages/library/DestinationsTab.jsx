@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Card, Input, Modal, Spinner, useToast } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Input,
+  Modal,
+  Skeleton,
+  Switch,
+  Table,
+  useToast,
+} from '../../components/ui';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 
 function DestinationsTab({ onChanged }) {
@@ -95,73 +108,86 @@ function DestinationsTab({ onChanged }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex items-center gap-2 text-sm text-neutral-600">
-          <input
-            type="checkbox"
-            checked={includeArchived}
-            onChange={(e) => setIncludeArchived(e.target.checked)}
-          />
-          Show archived
-        </label>
+      <Card bodyClassName="flex flex-wrap items-center justify-between gap-3 p-4">
+        <Switch
+          label="Show archived"
+          checked={includeArchived}
+          onChange={(e) => setIncludeArchived(e.target.checked)}
+        />
         <Button size="sm" onClick={openCreate}>
-          + New Destination
+          <Icon name="plus" size={14} />
+          New destination
         </Button>
-      </div>
+      </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
       {loading ? (
-        <div className="flex justify-center py-8">
-          <Spinner />
-        </div>
-      ) : destinations.length === 0 ? (
-        <Card bodyClassName="py-8 text-center">
-          <p className="text-neutral-500">No destinations yet.</p>
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={4} cols={3} />
         </Card>
+      ) : destinations.length === 0 ? (
+        <EmptyState
+          icon="map-pin"
+          title="No destinations yet"
+          description="Destinations are the top of the hierarchy — day templates, hotels and packages all hang off one."
+          action={
+            <Button onClick={openCreate}>
+              <Icon name="plus" size={16} />
+              New destination
+            </Button>
+          }
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                <th className="px-5 py-3 font-medium">Name</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
+          <Table minWidth="30rem">
+            <Table.Head>
+              <Table.HeadCell>Name</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+              <Table.HeadCell align="right">
+                <span className="sr-only">Actions</span>
+              </Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
               {destinations.map((d) => (
-                <tr key={d.id} className="border-b border-neutral-100 last:border-0">
-                  <td className="px-5 py-3 text-neutral-900">{d.name}</td>
-                  <td className="px-5 py-3">
+                <Table.Row key={d.id} className={d.archived ? 'bg-neutral-50/60' : undefined}>
+                  <Table.Cell strong>{d.name}</Table.Cell>
+                  <Table.Cell>
                     {d.archived ? (
-                      <Badge variant="danger">Archived</Badge>
+                      <Badge variant="neutral" dot>
+                        Archived
+                      </Badge>
                     ) : (
-                      <Badge variant="success">Active</Badge>
+                      <Badge variant="success" dot>
+                        Active
+                      </Badge>
                     )}
-                  </td>
-                  <td className="px-5 py-3 text-right">
+                  </Table.Cell>
+                  <Table.Cell align="right">
                     <div className="flex justify-end gap-2">
                       {!d.archived && (
                         <Button variant="outline" size="sm" onClick={() => openEdit(d)}>
+                          <Icon name="pencil" size={13} />
                           Edit
                         </Button>
                       )}
                       {d.archived ? (
                         <Button variant="outline" size="sm" onClick={() => handleRestore(d)}>
+                          <Icon name="restore" size={13} />
                           Restore
                         </Button>
                       ) : (
                         <Button variant="outline" size="sm" onClick={() => handleArchive(d)}>
+                          <Icon name="archive" size={13} />
                           Archive
                         </Button>
                       )}
                     </div>
-                  </td>
-                </tr>
+                  </Table.Cell>
+                </Table.Row>
               ))}
-            </tbody>
-          </table>
+            </Table.Body>
+          </Table>
         </Card>
       )}
 

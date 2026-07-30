@@ -1,14 +1,16 @@
-import { Card } from '../ui';
+import { EmptyState, PageHeader } from '../ui';
 
 /** Shared placeholder body for a route that's routed and guarded but not built yet. */
 function ComingSoon({ title, description }) {
   return (
-    <Card>
-      <h1 className="text-xl font-semibold text-neutral-900">{title}</h1>
-      <p className="mt-2 text-sm text-neutral-500">
-        {description ?? 'This screen will be built in a later prompt.'}
-      </p>
-    </Card>
+    <div className="flex flex-col gap-6">
+      <PageHeader title={title} />
+      <EmptyState
+        icon="sparkles"
+        title="Coming soon"
+        description={description ?? 'This screen is routed and access-controlled, but not built yet.'}
+      />
+    </div>
   );
 }
 

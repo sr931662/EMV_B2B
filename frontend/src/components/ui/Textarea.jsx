@@ -1,42 +1,36 @@
 import { useId } from 'react';
 import { cn } from '../../lib/cn';
+import { FIELD_BASE, FIELD_TONE, FieldLabel, FieldMessage } from './Input';
 
-/** Labelled <textarea>, styled to match Input. */
+/** Labelled <textarea>. Shares Input's exact box treatment so stacked fields stay aligned. */
 function Textarea({ label, error, hint, className = '', id, required = false, rows = 3, ...rest }) {
   const generatedId = useId();
   const textareaId = id || generatedId;
+  const messageId = error ? `${textareaId}-error` : hint ? `${textareaId}-hint` : undefined;
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={textareaId} className="text-sm font-medium text-neutral-700">
+        <FieldLabel htmlFor={textareaId} required={required}>
           {label}
-          {required && <span className="text-danger-600"> *</span>}
-        </label>
+        </FieldLabel>
       )}
       <textarea
         id={textareaId}
         rows={rows}
         aria-invalid={Boolean(error) || undefined}
-        aria-describedby={error ? `${textareaId}-error` : hint ? `${textareaId}-hint` : undefined}
+        aria-describedby={messageId}
         className={cn(
-          'rounded-lg border px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400',
-          'focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500',
-          'disabled:bg-neutral-100 disabled:text-neutral-400',
-          error ? 'border-danger-400' : 'border-neutral-300',
+          FIELD_BASE,
+          'px-3 py-2.5 leading-relaxed',
+          // Only vertical resize: horizontal dragging breaks every grid this sits inside.
+          'resize-y',
+          error ? FIELD_TONE.error : FIELD_TONE.normal,
           className
         )}
         {...rest}
       />
-      {error ? (
-        <p id={`${textareaId}-error`} className="text-sm text-danger-600">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={`${textareaId}-hint`} className="text-sm text-neutral-500">
-          {hint}
-        </p>
-      ) : null}
+      <FieldMessage id={messageId} error={error} hint={hint} />
     </div>
   );
 }

@@ -106,7 +106,7 @@ function VisaPaymentPage() {
     form.amount !== '' && !Number.isNaN(Number(form.amount)) && Number(form.amount) !== amountDue;
 
   const backLink = (
-    <Link to={`/visa/${id}`} className="text-sm font-medium text-primary-600 hover:text-primary-700">
+    <Link to={`/visa/${id}`} className="-ml-1 inline-flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium text-neutral-500 transition-colors hover:text-primary-700">
       &larr; Back to application
     </Link>
   );
@@ -141,7 +141,7 @@ function VisaPaymentPage() {
     return (
       <div className="flex flex-col gap-6">
         {backLink}
-        <h1 className="text-2xl font-semibold text-neutral-900">Payment Submitted</h1>
+        <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">Payment Submitted</h1>
         <Alert variant="success" title="Pending verification">
           {submitResult?.message ??
             'Your payment has been submitted successfully. It is currently pending verification by the TravNexa Global team. Verification usually takes 24 to 48 hours.'}
@@ -183,7 +183,7 @@ function VisaPaymentPage() {
       {backLink}
 
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900">
+        <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">
           {payment ? 'Resubmit Payment' : 'Submit Payment'}
         </h1>
         <p className="mt-1 text-sm text-neutral-500">

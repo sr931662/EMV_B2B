@@ -81,7 +81,7 @@ function NewVisaRequestPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900">New Visa Request</h1>
+        <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">New Visa Request</h1>
         <p className="mt-1 text-sm text-neutral-500">
           Pick a destination and add every passenger travelling on this application.
         </p>

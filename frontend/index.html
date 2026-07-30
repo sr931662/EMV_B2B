@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f5c7a" />
+    <meta
+      name="description"
+      content="TravNexa Global — B2B travel partner portal for packages, white-label quotes and visa services."
+    />
+
+    <!--
+      Inter is the font the design tokens in src/index.css ask for. It was referenced in the
+      --font-sans stack but never actually loaded, so every screen silently fell back to
+      system UI. Loading the variable axis (100..900) means every weight the UI uses costs one
+      file, and `display=swap` keeps first paint instant on a cold cache.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=swap"
+      rel="stylesheet"
+    />
+
     <title>TravNexa Global</title>
   </head>
   <body>

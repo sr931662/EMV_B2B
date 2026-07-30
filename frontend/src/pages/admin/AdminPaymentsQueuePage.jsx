@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Alert, Badge, Card, Select, Spinner } from '../../components/ui';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  Alert,
+  Badge,
+  Card,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Select,
+  Skeleton,
+  Table,
+} from '../../components/ui';
 import { apiGet, ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../lib/format';
 import { cn } from '../../lib/cn';
@@ -26,6 +36,7 @@ function buildQuery({ status, type }) {
 }
 
 function AdminPaymentsQueuePage() {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState({ status: 'PENDING_VERIFICATION', type: '' });
   const [payments, setPayments] = useState([]);
   const [count, setCount] = useState(0);
@@ -55,128 +66,181 @@ function AdminPaymentsQueuePage() {
     };
   }, [filters]);
 
+  const mismatchCount = payments.filter((p) => p.reconciliationMismatch).length;
+
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-neutral-900">Payment Verification Queue</h1>
+      <PageHeader
+        eyebrow="Operations"
+        title="Payment Verification Queue"
+        subtitle="Review submitted proofs against the wholesale amount owed, then approve or reject."
+      />
 
-      <Card>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:w-1/2">
-          <Select
-            label="Status"
-            value={filters.status}
-            onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-            options={STATUS_OPTIONS}
-          />
-          <Select
-            label="Type"
-            value={filters.type}
-            onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
-            options={TYPE_OPTIONS}
-          />
-        </div>
+      <Card bodyClassName="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:max-w-lg">
+        <Select
+          label="Status"
+          value={filters.status}
+          onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+          options={STATUS_OPTIONS}
+        />
+        <Select
+          label="Type"
+          value={filters.type}
+          onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
+          options={TYPE_OPTIONS}
+        />
       </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
-      <p className="text-sm text-neutral-500">
-        {loading ? 'Loading…' : `${count} payment${count === 1 ? '' : 's'}`}
-      </p>
+      {/* Mismatches are the reason this queue exists, so surface the count above the table rather
+       * than leaving an admin to spot the highlighted rows by eye. */}
+      {!loading && mismatchCount > 0 && (
+        <Alert variant="warning" title={`${mismatchCount} amount mismatch${mismatchCount === 1 ? '' : 'es'}`}>
+          The highlighted rows were paid for an amount that differs from the wholesale total owed to
+          TravNexa. Open each one to compare before approving.
+        </Alert>
+      )}
+
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[13px] text-neutral-500">
+          {loading ? (
+            'Loading…'
+          ) : (
+            <>
+              <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> payment
+              {count === 1 ? '' : 's'}
+            </>
+          )}
+        </p>
+      </div>
 
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      ) : payments.length === 0 ? (
-        <Card bodyClassName="py-10 text-center">
-          <p className="text-neutral-500">No payments match this filter.</p>
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={6} cols={6} />
         </Card>
+      ) : payments.length === 0 ? (
+        <EmptyState
+          icon="check-circle"
+          title="Queue is clear"
+          description="No payments match this filter. Nothing is waiting on you right now."
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                  <th className="px-5 py-3 font-medium">Agency</th>
-                  <th className="px-5 py-3 font-medium">Type</th>
-                  <th className="px-5 py-3 font-medium">Subject</th>
-                  <th className="px-5 py-3 font-medium">Amount</th>
-                  <th className="px-5 py-3 font-medium">Expected (wholesale)</th>
-                  <th className="px-5 py-3 font-medium">Transaction ID</th>
-                  <th className="px-5 py-3 font-medium">Submitted</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((p) => (
-                  <tr
-                    key={p.paymentId}
-                    className={cn(
-                      'cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-neutral-50',
-                      p.reconciliationMismatch && 'bg-warning-50 hover:bg-warning-100'
-                    )}
-                  >
-                    <td className="px-5 py-3">
-                      <Link to={`/admin/payments/${p.paymentId}`} className="block text-neutral-900">
-                        {p.agencyName ?? '—'}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3">
-                      <Badge variant="neutral">{p.type}</Badge>
-                    </td>
-                    <td className="px-5 py-3 text-neutral-700">
-                      {p.type === 'PACKAGE' ? (
-                        <>
-                          {p.packageTitle}
-                          {p.leadName && <span className="text-neutral-400"> &middot; {p.leadName}</span>}
-                        </>
-                      ) : (
-                        <>
-                          {p.applicationNumber}
-                          {p.countryName && <span className="text-neutral-400"> &middot; {p.countryName}</span>}
-                          {p.passengerCount != null && (
-                            <span className="text-neutral-400">
-                              {' '}
-                              &middot; {p.passengerCount} passenger{p.passengerCount === 1 ? '' : 's'}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      <span className={p.reconciliationMismatch ? 'font-semibold text-warning-700' : 'text-neutral-900'}>
-                        {formatCurrency(p.amount)}
-                      </span>
-                      {p.reconciliationMismatch && (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-warning-100 px-2 py-0.5 text-xs font-medium text-warning-700">
-                          ⚠ Mismatch
+          <Table minWidth="66rem">
+            <Table.Head>
+              <Table.HeadCell>Agency</Table.HeadCell>
+              <Table.HeadCell>Type</Table.HeadCell>
+              <Table.HeadCell>Subject</Table.HeadCell>
+              <Table.HeadCell align="right">Amount paid</Table.HeadCell>
+              <Table.HeadCell align="right">Expected (wholesale)</Table.HeadCell>
+              <Table.HeadCell>Transaction ID</Table.HeadCell>
+              <Table.HeadCell align="right">Submitted</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
+              {payments.map((p) => (
+                <Table.Row
+                  key={p.paymentId}
+                  interactive
+                  // The row was already styled as clickable but only the agency cell navigated.
+                  // Now the whole row does, while the cell keeps a real <a> so keyboard users and
+                  // open-in-new-tab still work.
+                  onClick={() => navigate(`/admin/payments/${p.paymentId}`)}
+                  className={cn(
+                    p.reconciliationMismatch && 'bg-warning-50 hover:bg-warning-100/70'
+                  )}
+                >
+                  <Table.Cell strong>
+                    <Link
+                      to={`/admin/payments/${p.paymentId}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:text-primary-700 hover:underline"
+                    >
+                      {p.agencyName ?? '—'}
+                    </Link>
+                  </Table.Cell>
+
+                  <Table.Cell>
+                    <Badge variant="neutral">{p.type}</Badge>
+                  </Table.Cell>
+
+                  <Table.Cell>
+                    {p.type === 'PACKAGE' ? (
+                      <>
+                        <span className="font-medium text-neutral-800">{p.packageTitle}</span>
+                        {p.leadName && (
+                          <span className="block text-[12px] text-neutral-400">{p.leadName}</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-medium text-neutral-800">{p.applicationNumber}</span>
+                        <span className="block text-[12px] text-neutral-400">
+                          {[
+                            p.countryName,
+                            p.passengerCount != null
+                              ? `${p.passengerCount} passenger${p.passengerCount === 1 ? '' : 's'}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </span>
+                      </>
+                    )}
+                  </Table.Cell>
+
+                  <Table.Cell align="right">
+                    <span
+                      className={cn(
+                        'font-semibold',
+                        p.reconciliationMismatch ? 'text-warning-700' : 'text-neutral-900'
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-neutral-700">
-                      {p.amountDue != null ? (
-                        <>
+                    >
+                      {formatCurrency(p.amount)}
+                    </span>
+                    {p.reconciliationMismatch && (
+                      <span className="mt-1 flex items-center justify-end gap-1 text-[11px] font-semibold uppercase tracking-wide text-warning-700">
+                        <Icon name="alert-triangle" size={12} />
+                        Mismatch
+                      </span>
+                    )}
+                  </Table.Cell>
+
+                  <Table.Cell align="right">
+                    {p.amountDue != null ? (
+                      <>
+                        <span className="font-medium text-neutral-800">
                           {formatCurrency(p.amountDue)}
-                          {p.sellingPrice != null && (
-                            <p className="text-xs text-neutral-400">
-                              Customer pays {formatCurrency(p.sellingPrice)} (incl.{' '}
-                              {formatCurrency(p.markupAmount)} markup)
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-neutral-700">{p.transactionId}</td>
-                    <td className="px-5 py-3 text-neutral-500">{formatDate(p.submittedAt)}</td>
-                    <td className="px-5 py-3">
-                      <Badge status={p.type === 'PACKAGE' ? p.quoteStatus : p.visaRequestStatus} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        </span>
+                        {p.sellingPrice != null && (
+                          <span className="mt-0.5 block text-[11px] leading-snug text-neutral-400">
+                            Customer pays {formatCurrency(p.sellingPrice)}
+                            <br />
+                            incl. {formatCurrency(p.markupAmount)} markup
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-neutral-400">—</span>
+                    )}
+                  </Table.Cell>
+
+                  <Table.Cell>
+                    <span className="font-mono text-[12px] text-neutral-600">{p.transactionId}</span>
+                  </Table.Cell>
+
+                  <Table.Cell align="right" muted>
+                    {formatDate(p.submittedAt)}
+                  </Table.Cell>
+
+                  <Table.Cell>
+                    <Badge status={p.type === 'PACKAGE' ? p.quoteStatus : p.visaRequestStatus} />
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
         </Card>
       )}
     </div>

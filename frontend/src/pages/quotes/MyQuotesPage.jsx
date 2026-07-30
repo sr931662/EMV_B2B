@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Select, Spinner } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Select,
+  Skeleton,
+  Table,
+} from '../../components/ui';
 import { apiGet, ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../lib/format';
 
@@ -45,76 +56,110 @@ function MyQuotesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-neutral-900">My Quotes</h1>
-        <Link to="/packages">
-          <Button variant="outline">Browse Packages</Button>
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Sales"
+        title="My Quotes"
+        subtitle="Every quote you've generated, with its customer price and booking status."
+        actions={
+          <Button as={Link} to="/packages" variant="outline">
+            <Icon name="package" size={16} />
+            Browse packages
+          </Button>
+        }
+      />
 
-      <Card bodyClassName="max-w-xs">
+      <Card
+        // The filter is a single control, so it gets a compact strip rather than a full card
+        // header — a titled panel around one dropdown is wasted vertical space.
+        bodyClassName="flex flex-wrap items-end gap-4 p-4"
+      >
         <Select
           label="Filter by status"
+          className="w-full sm:w-64"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           options={STATUS_OPTIONS}
         />
+        {!loading && (
+          <p className="pb-2.5 text-[13px] text-neutral-500">
+            <span className="font-semibold text-neutral-900 tabular-nums">{quotes.length}</span>{' '}
+            quote{quotes.length === 1 ? '' : 's'}
+          </p>
+        )}
       </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      ) : quotes.length === 0 ? (
-        <Card bodyClassName="py-10 text-center">
-          <p className="text-neutral-500">
-            {status ? 'No quotes match this filter.' : 'No quotes yet — browse packages to create your first.'}
-          </p>
-          {!status && (
-            <Link to="/packages" className="mt-4 inline-block">
-              <Button>Browse Packages</Button>
-            </Link>
-          )}
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={5} cols={5} />
         </Card>
+      ) : quotes.length === 0 ? (
+        <EmptyState
+          icon="receipt"
+          title={status ? 'No quotes match this filter' : 'No quotes yet'}
+          description={
+            status
+              ? 'Try a different status, or clear the filter to see everything.'
+              : 'Pick a package from the marketplace, add your markup, and generate a branded quote for your customer.'
+          }
+          action={
+            status ? (
+              <Button variant="outline" onClick={() => setStatus('')}>
+                Clear filter
+              </Button>
+            ) : (
+              <Button as={Link} to="/packages">
+                <Icon name="package" size={16} />
+                Browse packages
+              </Button>
+            )
+          }
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                  <th className="px-5 py-3 font-medium">Package</th>
-                  <th className="px-5 py-3 font-medium">Lead</th>
-                  <th className="px-5 py-3 font-medium">Customer price</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Created</th>
-                  <th className="px-5 py-3 font-medium" />
-                </tr>
-              </thead>
-              <tbody>
-                {quotes.map((q) => (
-                  <tr key={q.id} className="border-b border-neutral-100 last:border-0">
-                    <td className="px-5 py-3 text-neutral-900">{q.package?.title}</td>
-                    <td className="px-5 py-3 text-neutral-900">{q.leadName}</td>
-                    <td className="px-5 py-3 text-neutral-900">{formatCurrency(q.sellingPrice)}</td>
-                    <td className="px-5 py-3">
-                      <Badge status={q.status} />
-                    </td>
-                    <td className="px-5 py-3 text-neutral-500">{formatDate(q.createdAt)}</td>
-                    <td className="px-5 py-3 text-right">
-                      <Link
-                        to={`/quotes/${q.id}`}
-                        className="font-medium text-primary-600 hover:text-primary-700"
-                      >
-                        View
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table minWidth="46rem">
+            <Table.Head>
+              <Table.HeadCell>Package</Table.HeadCell>
+              <Table.HeadCell>Lead</Table.HeadCell>
+              <Table.HeadCell align="right">Customer price</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+              <Table.HeadCell align="right">Created</Table.HeadCell>
+              <Table.HeadCell align="right">
+                <span className="sr-only">Actions</span>
+              </Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
+              {quotes.map((q) => (
+                <Table.Row key={q.id}>
+                  <Table.Cell strong>{q.package?.title}</Table.Cell>
+                  <Table.Cell>{q.leadName}</Table.Cell>
+                  <Table.Cell align="right" strong>
+                    {formatCurrency(q.sellingPrice)}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Badge status={q.status} />
+                  </Table.Cell>
+                  <Table.Cell align="right" muted>
+                    {formatDate(q.createdAt)}
+                  </Table.Cell>
+                  <Table.Cell align="right">
+                    <Link
+                      to={`/quotes/${q.id}`}
+                      className="group inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-primary-600 transition-colors hover:text-primary-700"
+                    >
+                      View
+                      <Icon
+                        name="chevron-right"
+                        size={13}
+                        className="transition-transform duration-150 group-hover:translate-x-0.5"
+                      />
+                    </Link>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
         </Card>
       )}
     </div>

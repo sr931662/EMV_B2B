@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Spinner, useToast } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Skeleton,
+  Switch,
+  Table,
+  useToast,
+} from '../../components/ui';
 import { apiGet, apiPost, apiDelete, ApiError } from '../../api/client';
 
 function EmailTemplatesPage() {
@@ -46,75 +58,105 @@ function EmailTemplatesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-neutral-900">Email Templates</h1>
-        <Link to="/admin/templates/new">
-          <Button>+ New Template</Button>
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Administration"
+        title="Email Templates"
+        subtitle="Wording for every automated email. Edits take effect immediately, with no code change."
+        actions={
+          <Button as={Link} to="/admin/templates/new">
+            <Icon name="plus" size={16} />
+            New template
+          </Button>
+        }
+      />
 
-      <label className="flex items-center gap-2 text-sm text-neutral-600">
-        <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} />
-        Show archived
-      </label>
+      <Card bodyClassName="flex flex-wrap items-center justify-between gap-4 p-4">
+        <Switch
+          label="Show archived"
+          checked={includeArchived}
+          onChange={(e) => setIncludeArchived(e.target.checked)}
+        />
+        {!loading && (
+          <p className="text-[13px] text-neutral-500">
+            <span className="font-semibold text-neutral-900 tabular-nums">{templates.length}</span>{' '}
+            template{templates.length === 1 ? '' : 's'}
+          </p>
+        )}
+      </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      ) : templates.length === 0 ? (
-        <Card bodyClassName="py-10 text-center">
-          <p className="text-neutral-500">No email templates yet.</p>
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={6} cols={4} />
         </Card>
+      ) : templates.length === 0 ? (
+        <EmptyState
+          icon="mail"
+          title="No email templates yet"
+          description="Templates control the wording of every automated email the platform sends."
+          action={
+            <Button as={Link} to="/admin/templates/new">
+              <Icon name="plus" size={16} />
+              New template
+            </Button>
+          }
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                <th className="px-5 py-3 font-medium">Name</th>
-                <th className="px-5 py-3 font-medium">Subject</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
+          <Table minWidth="42rem">
+            <Table.Head>
+              <Table.HeadCell>Name</Table.HeadCell>
+              <Table.HeadCell>Subject</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+              <Table.HeadCell align="right">
+                <span className="sr-only">Actions</span>
+              </Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
               {templates.map((t) => (
-                <tr key={t.id} className="border-b border-neutral-100 last:border-0">
-                  <td className="px-5 py-3 font-mono text-neutral-900">{t.name}</td>
-                  <td className="px-5 py-3 text-neutral-700">{t.subject}</td>
-                  <td className="px-5 py-3">
+                <Table.Row key={t.id} className={t.archived ? 'bg-neutral-50/60' : undefined}>
+                  <Table.Cell>
+                    {/* The name is the lookup key services call by, so it reads as code. */}
+                    <span className="font-mono text-[12px] font-medium text-neutral-900">{t.name}</span>
+                  </Table.Cell>
+                  <Table.Cell>{t.subject}</Table.Cell>
+                  <Table.Cell>
                     {t.archived ? (
-                      <Badge variant="danger">Archived</Badge>
+                      <Badge variant="neutral" dot>
+                        Archived
+                      </Badge>
                     ) : (
-                      <Badge variant="success">Active</Badge>
+                      <Badge variant="success" dot>
+                        Active
+                      </Badge>
                     )}
-                  </td>
-                  <td className="px-5 py-3 text-right">
+                  </Table.Cell>
+                  <Table.Cell align="right">
                     <div className="flex justify-end gap-2">
                       {!t.archived && (
-                        <Link to={`/admin/templates/${t.id}/edit`}>
-                          <Button variant="outline" size="sm">
-                            Edit
-                          </Button>
-                        </Link>
+                        <Button as={Link} to={`/admin/templates/${t.id}/edit`} variant="outline" size="sm">
+                          <Icon name="pencil" size={13} />
+                          Edit
+                        </Button>
                       )}
                       {t.archived ? (
                         <Button variant="outline" size="sm" onClick={() => handleRestore(t)}>
+                          <Icon name="restore" size={13} />
                           Restore
                         </Button>
                       ) : (
                         <Button variant="outline" size="sm" onClick={() => handleArchive(t)}>
+                          <Icon name="archive" size={13} />
                           Archive
                         </Button>
                       )}
                     </div>
-                  </td>
-                </tr>
+                  </Table.Cell>
+                </Table.Row>
               ))}
-            </tbody>
-          </table>
+            </Table.Body>
+          </Table>
         </Card>
       )}
     </div>

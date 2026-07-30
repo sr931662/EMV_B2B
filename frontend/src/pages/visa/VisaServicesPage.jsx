@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Spinner } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Skeleton,
+  Table,
+} from '../../components/ui';
 import { apiGet, ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../lib/format';
 
@@ -33,45 +43,82 @@ function VisaServicesPage() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
-
   if (error) {
     return <Alert variant="danger">{error}</Alert>;
   }
 
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-8">
+        <PageHeader title="Visa Services" subtitle="Loading destinations…" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Skeleton.Stat key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-neutral-900">Visa Services</h1>
-          <p className="mt-1 text-sm text-neutral-500">Apply for a visa on behalf of your customer.</p>
-        </div>
-        <Link to="/visa/new">
-          <Button>Apply for a Visa</Button>
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Visa desk"
+        title="Visa Services"
+        subtitle="Apply for a visa on behalf of your customer and track every application to completion."
+        actions={
+          <Button as={Link} to="/visa/new">
+            <Icon name="plus" size={16} />
+            Apply for a visa
+          </Button>
+        }
+      />
 
       <div>
-        <h2 className="mb-3 text-lg font-semibold text-neutral-900">Countries</h2>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-neutral-900">Destinations</h2>
+          <p className="mt-0.5 text-[13px] text-neutral-500">
+            Per-passenger base fee — your markup is added when you apply.
+          </p>
+        </div>
+
         {countries.length === 0 ? (
-          <Card bodyClassName="py-10 text-center">
-            <p className="text-neutral-500">No visa countries are configured yet.</p>
-          </Card>
+          <EmptyState
+            icon="globe"
+            title="No visa destinations configured"
+            description="TravNexa hasn't published any visa countries yet. Check back shortly."
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {countries.map((c) => (
-              <Link key={c.id} to={`/visa/new?countryId=${c.id}`}>
-                <Card className="h-full transition-shadow hover:shadow-md" bodyClassName="text-center">
-                  <p className="font-semibold text-neutral-900">{c.name}</p>
-                  <p className="mt-1 text-xs text-neutral-400">{formatCurrency(c.baseFee)} / passenger</p>
-                  <p className="mt-1 text-xs text-primary-600">Apply &rarr;</p>
-                </Card>
+              <Link
+                key={c.id}
+                to={`/visa/new?countryId=${c.id}`}
+                className="group surface flex flex-col gap-3 rounded-xl p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50 focus-visible:ring-offset-2"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100 transition-colors group-hover:bg-primary-600 group-hover:text-white">
+                    <Icon name="globe" size={17} />
+                  </span>
+                  <Icon
+                    name="arrow-up-right"
+                    size={15}
+                    className="text-neutral-300 transition-all duration-150 group-hover:-translate-y-0.5 group-hover:text-primary-600"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[15px] font-semibold leading-snug text-neutral-900 group-hover:text-primary-700">
+                    {c.name}
+                  </p>
+                  <p className="mt-1 text-[13px] text-neutral-500">
+                    <span className="font-medium text-neutral-800 tabular-nums">
+                      {formatCurrency(c.baseFee)}
+                    </span>{' '}
+                    / passenger
+                  </p>
+                </div>
               </Link>
             ))}
           </div>
@@ -79,47 +126,68 @@ function VisaServicesPage() {
       </div>
 
       <div>
-        <h2 className="mb-3 text-lg font-semibold text-neutral-900">My Visa Requests</h2>
+        <h2 className="mb-4 text-lg font-semibold text-neutral-900">My visa requests</h2>
+
         {requests.length === 0 ? (
-          <Card bodyClassName="py-10 text-center">
-            <p className="text-neutral-500">No visa requests yet — apply for your first one above.</p>
-          </Card>
+          <EmptyState
+            icon="plane"
+            title="No visa requests yet"
+            description="Pick a destination above to start your first application. You'll upload passenger documents before paying."
+            action={
+              <Button as={Link} to="/visa/new">
+                <Icon name="plus" size={16} />
+                Apply for a visa
+              </Button>
+            }
+          />
         ) : (
           <Card bodyClassName="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                    <th className="px-5 py-3 font-medium">Application</th>
-                    <th className="px-5 py-3 font-medium">Country</th>
-                    <th className="px-5 py-3 font-medium">Passengers</th>
-                    <th className="px-5 py-3 font-medium">Total</th>
-                    <th className="px-5 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 font-medium">Created</th>
-                    <th className="px-5 py-3 font-medium" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {requests.map((r) => (
-                    <tr key={r.id} className="border-b border-neutral-100 last:border-0">
-                      <td className="px-5 py-3 text-neutral-900">{r.applicationNumber}</td>
-                      <td className="px-5 py-3 text-neutral-700">{r.countryName}</td>
-                      <td className="px-5 py-3 text-neutral-700">{r.passengerCount}</td>
-                      <td className="px-5 py-3 text-neutral-700">{formatCurrency(r.sellingPrice)}</td>
-                      <td className="px-5 py-3">
-                        <Badge status={r.status} />
-                      </td>
-                      <td className="px-5 py-3 text-neutral-500">{formatDate(r.createdAt)}</td>
-                      <td className="px-5 py-3 text-right">
-                        <Link to={`/visa/${r.id}`} className="font-medium text-primary-600 hover:text-primary-700">
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table minWidth="44rem">
+              <Table.Head>
+                <Table.HeadCell>Application</Table.HeadCell>
+                <Table.HeadCell>Country</Table.HeadCell>
+                <Table.HeadCell align="right">Passengers</Table.HeadCell>
+                <Table.HeadCell align="right">Total</Table.HeadCell>
+                <Table.HeadCell>Status</Table.HeadCell>
+                <Table.HeadCell align="right">Created</Table.HeadCell>
+                <Table.HeadCell align="right">
+                  <span className="sr-only">Actions</span>
+                </Table.HeadCell>
+              </Table.Head>
+              <Table.Body>
+                {requests.map((r) => (
+                  <Table.Row key={r.id}>
+                    <Table.Cell strong>
+                      <span className="font-mono text-[12px]">{r.applicationNumber}</span>
+                    </Table.Cell>
+                    <Table.Cell>{r.countryName}</Table.Cell>
+                    <Table.Cell align="right">{r.passengerCount}</Table.Cell>
+                    <Table.Cell align="right" strong>
+                      {formatCurrency(r.sellingPrice)}
+                    </Table.Cell>
+                    <Table.Cell>
+                      <Badge status={r.status} />
+                    </Table.Cell>
+                    <Table.Cell align="right" muted>
+                      {formatDate(r.createdAt)}
+                    </Table.Cell>
+                    <Table.Cell align="right">
+                      <Link
+                        to={`/visa/${r.id}`}
+                        className="group inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-primary-600 transition-colors hover:text-primary-700"
+                      >
+                        View
+                        <Icon
+                          name="chevron-right"
+                          size={13}
+                          className="transition-transform duration-150 group-hover:translate-x-0.5"
+                        />
+                      </Link>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
           </Card>
         )}
       </div>

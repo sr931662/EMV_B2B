@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
-import { Alert, Button, Input, PasswordStrengthMeter } from '../../components/ui';
+import { Alert, Button, Input, PasswordInput, PasswordStrengthMeter } from '../../components/ui';
 import { apiPost, ApiError } from '../../api/client';
 import { EMAIL_RE, MOBILE_RE, PINCODE_RE, isPasswordValid } from '../../lib/validators';
 
@@ -22,9 +22,19 @@ const INITIAL_FORM = {
   confirmPassword: '',
 };
 
+/**
+ * Registration is a long form (four sections, 14 fields), so the section headings are doing real
+ * navigational work. The trailing hairline turns each one into a visible divider that chunks the
+ * form, which is what keeps it from reading as one intimidating wall of inputs.
+ */
 function SectionHeading({ children }) {
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{children}</h2>
+    <div className="flex items-center gap-3">
+      <h2 className="shrink-0 text-[11px] font-semibold uppercase tracking-widest text-primary-600">
+        {children}
+      </h2>
+      <span aria-hidden="true" className="h-px flex-1 bg-neutral-200" />
+    </div>
   );
 }
 
@@ -240,9 +250,8 @@ function RegisterPage() {
           <SectionHeading>Security</SectionHeading>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Input
+              <PasswordInput
                 label="Password"
-                type="password"
                 autoComplete="new-password"
                 required
                 value={form.password}
@@ -254,9 +263,8 @@ function RegisterPage() {
                 <PasswordStrengthMeter password={form.password} />
               </div>
             </div>
-            <Input
+            <PasswordInput
               label="Confirm password"
-              type="password"
               autoComplete="new-password"
               required
               value={form.confirmPassword}

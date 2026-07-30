@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Spinner, useToast } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Skeleton,
+  Switch,
+  Table,
+  useToast,
+} from '../../components/ui';
 import { apiGet, apiPost, apiDelete, ApiError } from '../../api/client';
 import { formatCurrency } from '../../lib/format';
 
@@ -51,90 +63,115 @@ function AdminPackagesListPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-neutral-900">Packages</h1>
-        <Link to="/admin/packages/new">
-          <Button>+ Create Package</Button>
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Inventory"
+        title="Packages"
+        subtitle="Create and maintain the wholesale inventory partners can quote from."
+        actions={
+          <Button as={Link} to="/admin/packages/new">
+            <Icon name="plus" size={16} />
+            Create package
+          </Button>
+        }
+      />
 
-      <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-neutral-600">
-          <input
-            type="checkbox"
-            checked={includeArchived}
-            onChange={(e) => setIncludeArchived(e.target.checked)}
-          />
-          Show archived
-        </label>
-        <p className="text-sm text-neutral-500">{loading ? 'Loading…' : `${count} package${count === 1 ? '' : 's'}`}</p>
-      </div>
+      <Card bodyClassName="flex flex-wrap items-center justify-between gap-4 p-4">
+        <Switch
+          label="Show archived"
+          hint="Include packages withdrawn from the marketplace"
+          checked={includeArchived}
+          onChange={(e) => setIncludeArchived(e.target.checked)}
+        />
+        <p className="text-[13px] text-neutral-500">
+          {loading ? (
+            'Loading…'
+          ) : (
+            <>
+              <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> package
+              {count === 1 ? '' : 's'}
+            </>
+          )}
+        </p>
+      </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      ) : packages.length === 0 ? (
-        <Card bodyClassName="py-10 text-center">
-          <p className="text-neutral-500">No packages yet.</p>
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={6} cols={5} />
         </Card>
+      ) : packages.length === 0 ? (
+        <EmptyState
+          icon="package"
+          title="No packages yet"
+          description="Create your first package to make inventory available to partner agencies."
+          action={
+            <Button as={Link} to="/admin/packages/new">
+              <Icon name="plus" size={16} />
+              Create package
+            </Button>
+          }
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                  <th className="px-5 py-3 font-medium">Title</th>
-                  <th className="px-5 py-3 font-medium">Destination</th>
-                  <th className="px-5 py-3 font-medium">Duration</th>
-                  <th className="px-5 py-3 font-medium">TravNexa Cost</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium" />
-                </tr>
-              </thead>
-              <tbody>
-                {packages.map((pkg) => (
-                  <tr key={pkg.id} className="border-b border-neutral-100 last:border-0">
-                    <td className="px-5 py-3 text-neutral-900">{pkg.title}</td>
-                    <td className="px-5 py-3 text-neutral-700">{pkg.destination?.name}</td>
-                    <td className="px-5 py-3 text-neutral-700">
-                      {pkg.days}D/{pkg.nights}N
-                    </td>
-                    <td className="px-5 py-3 text-neutral-700">{formatCurrency(pkg.rawPrice)}</td>
-                    <td className="px-5 py-3">
-                      {pkg.archived ? (
-                        <Badge variant="danger">Archived</Badge>
-                      ) : (
-                        <Badge variant="success">Active</Badge>
+          <Table minWidth="54rem">
+            <Table.Head>
+              <Table.HeadCell>Title</Table.HeadCell>
+              <Table.HeadCell>Destination</Table.HeadCell>
+              <Table.HeadCell align="right">Duration</Table.HeadCell>
+              <Table.HeadCell align="right">TravNexa cost</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+              <Table.HeadCell align="right">
+                <span className="sr-only">Actions</span>
+              </Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
+              {packages.map((pkg) => (
+                <Table.Row key={pkg.id} className={pkg.archived ? 'bg-neutral-50/60' : undefined}>
+                  <Table.Cell strong>{pkg.title}</Table.Cell>
+                  <Table.Cell>{pkg.destination?.name}</Table.Cell>
+                  <Table.Cell align="right">
+                    {pkg.days}D / {pkg.nights}N
+                  </Table.Cell>
+                  <Table.Cell align="right" strong>
+                    {formatCurrency(pkg.rawPrice)}
+                  </Table.Cell>
+                  <Table.Cell>
+                    {pkg.archived ? (
+                      <Badge variant="neutral" dot>
+                        Archived
+                      </Badge>
+                    ) : (
+                      <Badge variant="success" dot>
+                        Active
+                      </Badge>
+                    )}
+                  </Table.Cell>
+                  <Table.Cell align="right">
+                    <div className="flex justify-end gap-2">
+                      {!pkg.archived && (
+                        <Button as={Link} to={`/admin/packages/${pkg.id}/edit`} variant="outline" size="sm">
+                          <Icon name="pencil" size={13} />
+                          Edit
+                        </Button>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        {!pkg.archived && (
-                          <Link to={`/admin/packages/${pkg.id}/edit`}>
-                            <Button variant="outline" size="sm">
-                              Edit
-                            </Button>
-                          </Link>
-                        )}
-                        {pkg.archived ? (
-                          <Button variant="outline" size="sm" onClick={() => handleRestore(pkg)}>
-                            Restore
-                          </Button>
-                        ) : (
-                          <Button variant="outline" size="sm" onClick={() => handleArchive(pkg)}>
-                            Archive
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {pkg.archived ? (
+                        <Button variant="outline" size="sm" onClick={() => handleRestore(pkg)}>
+                          <Icon name="restore" size={13} />
+                          Restore
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => handleArchive(pkg)}>
+                          <Icon name="archive" size={13} />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
         </Card>
       )}
     </div>

@@ -1,9 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Card, Input, Modal, Select, Spinner, useToast } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Input,
+  Modal,
+  PageHeader,
+  PasswordInput,
+  Select,
+  Skeleton,
+  Switch,
+  Table,
+  useToast,
+} from '../../components/ui';
 import ConfirmModal from '../../components/admin/ConfirmModal';
 import { useAuth } from '../../context/AuthContext';
 import { apiGet, apiPost, ApiError } from '../../api/client';
 import { formatDate } from '../../lib/format';
+import { cn } from '../../lib/cn';
 import { isEmailValid, isPasswordValid } from '../../lib/validators';
 
 const ROLE_OPTIONS = [
@@ -87,83 +104,125 @@ function StaffUsersPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-neutral-900">Staff Users</h1>
-        <Button onClick={openCreate}>+ Create Staff Account</Button>
-      </div>
+      <PageHeader
+        eyebrow="Administration"
+        title="Staff Users"
+        subtitle="Internal admin and data-feeder accounts. Created pre-verified, with no OTP step."
+        actions={
+          <Button onClick={openCreate}>
+            <Icon name="plus" size={16} />
+            Create staff account
+          </Button>
+        }
+      />
 
-      <label className="flex items-center gap-2 text-sm text-neutral-600">
-        <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} />
-        Show archived
-      </label>
+      <Card bodyClassName="flex flex-wrap items-center justify-between gap-4 p-4">
+        <Switch
+          label="Show archived"
+          hint="Include suspended accounts"
+          checked={includeArchived}
+          onChange={(e) => setIncludeArchived(e.target.checked)}
+        />
+        {!loading && (
+          <p className="text-[13px] text-neutral-500">
+            <span className="font-semibold text-neutral-900 tabular-nums">{users.length}</span>{' '}
+            account{users.length === 1 ? '' : 's'}
+          </p>
+        )}
+      </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}
 
       {loading ? (
-        <div className="flex min-h-[30vh] items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      ) : users.length === 0 ? (
-        <Card bodyClassName="py-10 text-center">
-          <p className="text-neutral-500">No staff accounts yet.</p>
+        <Card bodyClassName="p-5">
+          <Skeleton.Rows rows={4} cols={5} />
         </Card>
+      ) : users.length === 0 ? (
+        <EmptyState
+          icon="users"
+          title="No staff accounts yet"
+          description="Create an admin or data-feeder account to give a colleague access."
+          action={
+            <Button onClick={openCreate}>
+              <Icon name="plus" size={16} />
+              Create staff account
+            </Button>
+          }
+        />
       ) : (
         <Card bodyClassName="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 text-left text-neutral-500">
-                <th className="px-5 py-3 font-medium">Email</th>
-                <th className="px-5 py-3 font-medium">Role</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Joined</th>
-                <th className="px-5 py-3 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
+          <Table minWidth="38rem">
+            <Table.Head>
+              <Table.HeadCell>Email</Table.HeadCell>
+              <Table.HeadCell>Role</Table.HeadCell>
+              <Table.HeadCell>Status</Table.HeadCell>
+              <Table.HeadCell align="right">Joined</Table.HeadCell>
+              <Table.HeadCell align="right">
+                <span className="sr-only">Actions</span>
+              </Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
               {users.map((u) => {
                 const isSelf = u.id === currentUser?.id;
                 return (
-                  <tr key={u.id} className="border-b border-neutral-100 last:border-0">
-                    <td className="px-5 py-3 text-neutral-900">
-                      {u.email} {isSelf && <span className="text-xs text-neutral-400">(you)</span>}
-                    </td>
-                    <td className="px-5 py-3">
-                      <Badge variant="neutral">{u.role}</Badge>
-                    </td>
-                    <td className="px-5 py-3">
+                  <Table.Row key={u.id} className={u.archived ? 'bg-neutral-50/60' : undefined}>
+                    <Table.Cell strong>
+                      <span className="inline-flex items-center gap-2">
+                        {u.email}
+                        {isSelf && (
+                          <span className="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-700">
+                            You
+                          </span>
+                        )}
+                      </span>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <Badge variant={u.role === 'admin' ? 'primary' : 'neutral'}>{u.role}</Badge>
+                    </Table.Cell>
+                    <Table.Cell>
                       {u.archived ? (
-                        <Badge variant="danger">Suspended</Badge>
+                        <Badge variant="danger" dot>
+                          Suspended
+                        </Badge>
                       ) : (
-                        <Badge variant="success">Active</Badge>
+                        <Badge variant="success" dot>
+                          Active
+                        </Badge>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-neutral-500">{formatDate(u.createdAt)}</td>
-                    <td className="px-5 py-3 text-right">
+                    </Table.Cell>
+                    <Table.Cell align="right" muted>
+                      {formatDate(u.createdAt)}
+                    </Table.Cell>
+                    <Table.Cell align="right">
                       {u.archived ? (
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => setConfirmTarget({ user: u, action: 'activate' })}
                         >
+                          <Icon name="restore" size={13} />
                           Activate
                         </Button>
                       ) : (
+                        // Suspending yourself is refused by the backend, so the control is hidden
+                        // rather than offered and then rejected.
                         !isSelf && (
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setConfirmTarget({ user: u, action: 'suspend' })}
                           >
+                            <Icon name="archive" size={13} />
                             Suspend
                           </Button>
                         )
                       )}
-                    </td>
-                  </tr>
+                    </Table.Cell>
+                  </Table.Row>
                 );
               })}
-            </tbody>
-          </table>
+            </Table.Body>
+          </Table>
         </Card>
       )}
 
@@ -192,20 +251,27 @@ function StaffUsersPage() {
               Account created. Share these credentials securely — the password won&apos;t be shown
               again.
             </Alert>
-            <div className="rounded-lg border border-neutral-200 p-4 text-sm">
-              <p>
-                <span className="text-neutral-500">Email:</span>{' '}
-                <span className="font-mono font-medium text-neutral-900">{createdCreds.email}</span>
-              </p>
-              <p className="mt-1">
-                <span className="text-neutral-500">Password:</span>{' '}
-                <span className="font-mono font-medium text-neutral-900">{createdCreds.password}</span>
-              </p>
-              <p className="mt-1">
-                <span className="text-neutral-500">Role:</span>{' '}
-                <span className="font-medium text-neutral-900">{createdCreds.role}</span>
-              </p>
-            </div>
+            {/* Deliberately plain text, not a masked field: this is the one and only time the
+             * password is visible, and the admin has to be able to read and copy it. */}
+            <dl className="surface-muted divide-y divide-neutral-200/70 rounded-lg text-sm">
+              {[
+                { label: 'Email', value: createdCreds.email, mono: true },
+                { label: 'Password', value: createdCreds.password, mono: true },
+                { label: 'Role', value: createdCreds.role, mono: false },
+              ].map((row) => (
+                <div key={row.label} className="flex items-center justify-between gap-4 px-4 py-2.5">
+                  <dt className="text-[13px] text-neutral-500">{row.label}</dt>
+                  <dd
+                    className={cn(
+                      'min-w-0 truncate font-medium text-neutral-900',
+                      row.mono && 'font-mono text-[13px]'
+                    )}
+                  >
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -218,9 +284,8 @@ function StaffUsersPage() {
               onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
               error={errors.email}
             />
-            <Input
+            <PasswordInput
               label="Password"
-              type="password"
               required
               value={form.password}
               onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}

@@ -1,19 +1,34 @@
 import { cn } from '../../lib/cn';
 
+/*
+ * Tinted fill + a hairline inset ring in the same hue. The ring is what keeps a pale pill
+ * legible against a white card — a fill-only badge dissolves into the surface.
+ */
 const VARIANTS = {
-  neutral: 'bg-neutral-100 text-neutral-700',
-  primary: 'bg-primary-50 text-primary-700',
-  success: 'bg-success-50 text-success-700',
-  warning: 'bg-warning-50 text-warning-700',
-  danger: 'bg-danger-50 text-danger-700',
-  info: 'bg-info-50 text-info-700',
+  neutral: 'bg-neutral-100 text-neutral-700 ring-neutral-200',
+  primary: 'bg-primary-50 text-primary-700 ring-primary-100',
+  accent: 'bg-accent-50 text-accent-700 ring-accent-200',
+  success: 'bg-success-50 text-success-700 ring-success-200',
+  warning: 'bg-warning-50 text-warning-700 ring-warning-200',
+  danger: 'bg-danger-50 text-danger-700 ring-danger-200',
+  info: 'bg-info-50 text-info-700 ring-info-200',
+};
+
+const DOTS = {
+  neutral: 'bg-neutral-400',
+  primary: 'bg-primary-500',
+  accent: 'bg-accent-500',
+  success: 'bg-success-500',
+  warning: 'bg-warning-500',
+  danger: 'bg-danger-500',
+  info: 'bg-info-500',
 };
 
 /**
  * Maps the backend's status enums (QuoteStatus, PaymentStatus, VisaRequestStatus — see
  * API_SURFACE.md) to a Badge variant, so every status pill in the app reads consistently
  * without every feature screen re-inventing the mapping. Unknown values fall back to neutral
- * rather than throwing — new statuses should never crash a list screen.
+ * rather than throwing — a new status should never crash a list screen.
  */
 const STATUS_VARIANTS = {
   // Positive / confirmed
@@ -38,19 +53,33 @@ function statusVariant(status) {
   return STATUS_VARIANTS[status] ?? 'neutral';
 }
 
-/** Small status pill. Pass `variant` directly, or `status="PENDING_VERIFICATION"` to auto-map. */
-function Badge({ variant, status, className = '', children }) {
+/**
+ * Small status pill. Pass `variant` directly, or `status="PENDING_VERIFICATION"` to auto-map.
+ *
+ * A leading dot is drawn only for `status` pills — those encode workflow state, where the dot
+ * carries real scanning value. Plain `variant` badges (tags, type labels) stay clean.
+ */
+function Badge({ variant, status, dot, className = '', children }) {
   const resolved = variant ?? (status ? statusVariant(status) : 'neutral');
   const label = children ?? (status ? status.replaceAll('_', ' ') : null);
+  const showDot = dot ?? Boolean(status);
 
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-        VARIANTS[resolved],
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase',
+        'ring-1 ring-inset',
+        'tracking-wide',
+        VARIANTS[resolved] ?? VARIANTS.neutral,
         className
       )}
     >
+      {showDot && (
+        <span
+          aria-hidden="true"
+          className={cn('size-1.5 shrink-0 rounded-full', DOTS[resolved] ?? DOTS.neutral)}
+        />
+      )}
       {label}
     </span>
   );

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
-import { Alert, Button, Input } from '../../components/ui';
+import { Alert, Button, Icon, Input, PasswordInput } from '../../components/ui';
 import { useAuth } from '../../context/AuthContext';
 import { apiPost, ApiError } from '../../api/client';
 import { roleHome } from '../../lib/roleHome';
@@ -91,29 +91,35 @@ function LoginPage() {
           label="Email"
           type="email"
           autoComplete="email"
+          placeholder="you@agency.com"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           error={fieldErrors.email}
+          leading={<Icon name="mail" size={16} />}
         />
-        <Input
+        <PasswordInput
           label="Password"
-          type="password"
           autoComplete="current-password"
+          placeholder="••••••••"
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           error={fieldErrors.password}
         />
 
-        <div className="text-right text-sm">
-          <Link to="/forgot-password" className="font-medium text-primary-600 hover:text-primary-700">
+        <div className="-mt-1 text-right">
+          <Link
+            to="/forgot-password"
+            className="rounded-md text-[13px] font-medium text-primary-600 transition-colors hover:text-primary-700"
+          >
             Forgot password?
           </Link>
         </div>
 
-        <Button type="submit" loading={loading} className="w-full">
+        <Button type="submit" size="lg" loading={loading} className="mt-1 w-full">
           Log in
+          <Icon name="arrow-right" size={16} />
         </Button>
       </form>
     </AuthLayout>

@@ -96,13 +96,13 @@ function AdminVisaRequestDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Link to="/admin/visa-requests" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+      <Link to="/admin/visa-requests" className="-ml-1 inline-flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium text-neutral-500 transition-colors hover:text-primary-700">
         &larr; Back to visa requests
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-neutral-900">{visaRequest.applicationNumber}</h1>
+          <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">{visaRequest.applicationNumber}</h1>
           <p className="mt-1 text-sm text-neutral-500">
             {visaRequest.partner?.partnerProfile?.companyName ?? visaRequest.partner?.email} &middot;{' '}
             {visaRequest.visaCountry?.name}

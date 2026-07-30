@@ -267,7 +267,7 @@ function AdminVisaConfigPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-neutral-900">Visa Configuration</h1>
+      <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">Visa Configuration</h1>
 
       <VisaSubNav />
 

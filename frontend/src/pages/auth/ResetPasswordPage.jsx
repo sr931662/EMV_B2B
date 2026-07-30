@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/layout/AuthLayout';
-import { Alert, Button, Input, OtpInput, PasswordStrengthMeter, useToast } from '../../components/ui';
+import {
+  Alert,
+  Button,
+  Input,
+  OtpInput,
+  PasswordInput,
+  PasswordStrengthMeter,
+  useToast,
+} from '../../components/ui';
 import { apiPost, ApiError } from '../../api/client';
 import { isEmailValid, isPasswordValid } from '../../lib/validators';
 
@@ -79,9 +87,8 @@ function ResetPasswordPage() {
         <OtpInput label="Reset code" value={otp} onChange={setOtp} error={errors.otp} />
 
         <div>
-          <Input
+          <PasswordInput
             label="New password"
-            type="password"
             autoComplete="new-password"
             required
             value={newPassword}
@@ -94,9 +101,8 @@ function ResetPasswordPage() {
           </div>
         </div>
 
-        <Input
+        <PasswordInput
           label="Confirm new password"
-          type="password"
           autoComplete="new-password"
           required
           value={confirmPassword}

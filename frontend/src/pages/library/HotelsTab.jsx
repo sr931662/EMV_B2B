@@ -1,5 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Card, Input, Modal, Select, Spinner, Textarea, useToast } from '../../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Input,
+  Modal,
+  Select,
+  Skeleton,
+  Switch,
+  Textarea,
+  useToast,
+} from '../../components/ui';
 import RepeatableUrlList from '../../components/admin/RepeatableUrlList';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 
@@ -136,63 +150,88 @@ function HotelsTab() {
       </Card>
 
       {!destinationId ? (
-        <Card bodyClassName="py-8 text-center">
-          <p className="text-neutral-500">Pick a destination to manage its hotels.</p>
-        </Card>
+        <EmptyState
+          icon="map-pin"
+          title="Pick a destination"
+          description="Hotels belong to a destination. Choose one above to manage its properties."
+        />
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-sm text-neutral-600">
-              <input
-                type="checkbox"
-                checked={includeArchived}
-                onChange={(e) => setIncludeArchived(e.target.checked)}
-              />
-              Show archived
-            </label>
+          <Card bodyClassName="flex flex-wrap items-center justify-between gap-3 p-4">
+            <Switch
+              label="Show archived"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+            />
             <Button size="sm" onClick={openCreate}>
-              + New Hotel
+              <Icon name="plus" size={14} />
+              New hotel
             </Button>
-          </div>
+          </Card>
 
           {error && <Alert variant="danger">{error}</Alert>}
 
           {loading ? (
-            <div className="flex justify-center py-8">
-              <Spinner />
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <Card key={i}>
+                  <Skeleton.Text lines={2} />
+                </Card>
+              ))}
             </div>
           ) : hotels.length === 0 ? (
-            <Card bodyClassName="py-8 text-center">
-              <p className="text-neutral-500">No hotels for this destination yet.</p>
-            </Card>
+            <EmptyState
+              icon="building"
+              title="No hotels yet"
+              description="Add the properties for this destination so packages can bundle accommodation."
+              action={
+                <Button onClick={openCreate}>
+                  <Icon name="plus" size={16} />
+                  New hotel
+                </Button>
+              }
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {hotels.map((h) => (
-                <Card key={h.id}>
-                  <div className="flex items-start justify-between gap-4">
+                <Card key={h.id} className={h.archived ? 'opacity-75' : undefined}>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-neutral-900">{h.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-[15px] font-semibold text-neutral-900">{h.name}</h3>
                         <Badge variant="info">{h.category}</Badge>
-                        {h.archived && <Badge variant="danger">Archived</Badge>}
+                        {h.archived && (
+                          <Badge variant="neutral" dot>
+                            Archived
+                          </Badge>
+                        )}
                       </div>
-                      <p className="mt-1 whitespace-pre-line text-sm text-neutral-600">{h.description}</p>
+                      <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-neutral-600">
+                        {h.description}
+                      </p>
                       {h.images?.length > 0 && (
-                        <p className="mt-1 text-xs text-neutral-400">{h.images.length} image(s)</p>
+                        <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-neutral-400">
+                          <Icon name="file" size={12} />
+                          {h.images.length} image{h.images.length === 1 ? '' : 's'}
+                        </p>
                       )}
                     </div>
                     <div className="flex flex-none gap-2">
                       {!h.archived && (
                         <Button variant="outline" size="sm" onClick={() => openEdit(h)}>
+                          <Icon name="pencil" size={13} />
                           Edit
                         </Button>
                       )}
                       {h.archived ? (
                         <Button variant="outline" size="sm" onClick={() => handleRestore(h)}>
+                          <Icon name="restore" size={13} />
                           Restore
                         </Button>
                       ) : (
                         <Button variant="outline" size="sm" onClick={() => handleArchive(h)}>
+                          <Icon name="archive" size={13} />
                           Archive
                         </Button>
                       )}

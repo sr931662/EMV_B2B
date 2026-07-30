@@ -1,0 +1,386 @@
+
+> b2b-emv-backend@0.1.0 dev
+> nodemon src/index.js
+
+[33m[nodemon] 3.1.14[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: js,mjs,cjs,json[39m
+[32m[nodemon] starting `node src/index.js`[39m
+B2B EMV backend listening on port 4000
+[OTP] partner registration | email=smoke1785398614145@testagency.com | code=190944 | expires=2026-07-30T08:13:34.695Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: smoke1785398614145@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello Smoke Travels 1785398614145, Thanks for registering with TravNexa Global. Use the code below to verify your account: 190944 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=flow1785398735273@testagency.com | code=102118 | expires=2026-07-30T08:15:36.948Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: flow1785398735273@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello Flow Travels 1785398735273, Thanks for registering with TravNexa Global. Use the code below to verify your account: 102118 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] password reset | email=flow1785398735273@testagency.com | code=381565 | expires=2026-07-30T08:15:42.552Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: flow1785398735273@testagency.com
+Subject: Reset your TravNexa Global password
+──────────────────────────────────────────────────────────────────────
+Hello, We received a request to reset the password for flow1785398735273@testagency.com. Use the code below to continue: 381565 This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=iso1785398735273@testagency.com | code=625364 | expires=2026-07-30T08:16:03.733Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: iso1785398735273@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello Iso Travels 1785398735273, Thanks for registering with TravNexa Global. Use the code below to verify your account: 625364 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=flow1785398886838@testagency.com | code=028364 | expires=2026-07-30T08:18:07.796Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: flow1785398886838@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello flow Travels 1785398886838, Thanks for registering with TravNexa Global. Use the code below to verify your account: 028364 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=iso1785398886838@testagency.com | code=540942 | expires=2026-07-30T08:19:17.566Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: iso1785398886838@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello iso Travels 1785398886838, Thanks for registering with TravNexa Global. Use the code below to verify your account: 540942 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:34
+
+  21 
+  22 const payload = verifyJwt(token); // throws 401 on invalid/expired
+  23 
+→ 24 const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\middleware\authMiddleware.js:24:16 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[OTP] partner registration | email=smoke1785401389894@testagency.com | code=010402 | expires=2026-07-30T08:59:50.479Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: smoke1785401389894@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello Smoke Travels 1785401389894, Thanks for registering with TravNexa Global. Use the code below to verify your account: 010402 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=flow1785401416330@testagency.com | code=457924 | expires=2026-07-30T09:00:17.035Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: flow1785401416330@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello flow Travels 1785401416330, Thanks for registering with TravNexa Global. Use the code below to verify your account: 457924 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=iso1785401416330@testagency.com | code=370377 | expires=2026-07-30T09:01:26.017Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: iso1785401416330@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello iso Travels 1785401416330, Thanks for registering with TravNexa Global. Use the code below to verify your account: 370377 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=aarav.mehta@horizonvistatravels.com | code=679760 | expires=2026-07-30T09:02:45.431Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: aarav.mehta@horizonvistatravels.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello Horizon Vista Travels Pvt. Ltd., Thanks for registering with TravNexa Global. Use the code below to verify your account: 679760 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=singhlko19998@gmail.com | code=548385 | expires=2026-07-30T09:03:50.046Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: singhlko19998@gmail.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello Horizon Vista Travels Pvt. Ltd., Thanks for registering with TravNexa Global. Use the code below to verify your account: 548385 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\services\authService.js:186:34
+
+  183  * a reset endpoint that 404s is an account-enumeration oracle.
+  184  */
+  185 async function requestPasswordReset(email) {
+→ 186   const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async Object.requestPasswordReset (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\services\authService.js:186:16)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\controllers\authController.js:31:18 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[OTP] password reset | email=singhlko19998@gmail.com | code=896404 | expires=2026-07-30T09:12:58.841Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: singhlko19998@gmail.com
+Subject: Reset your TravNexa Global password
+──────────────────────────────────────────────────────────────────────
+Hello, We received a request to reset the password for singhlko19998@gmail.com. Use the code below to continue: 896404 This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/index.js`[39m
+B2B EMV backend listening on port 4000
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/index.js`[39m
+B2B EMV backend listening on port 4000
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/index.js`[39m
+B2B EMV backend listening on port 4000
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/index.js`[39m
+B2B EMV backend listening on port 4000 (development)
+[email] transport = console
