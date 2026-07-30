@@ -13,6 +13,10 @@ frontend/node_modules/
 frontend/dist/
 backend/dist/
 
+# node's compile cache and any other scratch output — never source, and it churns on every run,
+# which is why 963 of these files are currently tracked and dirty the diff on every `git status`.
+temp/
+
 # prisma
 backend/prisma/*.db
 
@@ -32,3 +36,8 @@ Thumbs.db
 
 # docker
 postgres-data/
+
+# terraform: see infra/.gitignore — state, tfvars and plans are all handled there
+
+# written by the ECS deploy workflow at runtime, from the live task definition
+task-definition.json
