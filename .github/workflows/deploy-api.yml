@@ -3,8 +3,10 @@
 # Nothing here needs Docker on a developer machine, and the runner is linux/amd64 already, so
 # the --platform mismatch that bites when building this image on an ARM Mac cannot happen.
 #
-# Auth is OIDC: the job exchanges a short-lived GitHub token for AWS credentials. No access keys
-# are stored in the repo. See the role setup in the deploy notes before the first run.
+# Auth uses an IAM user's access keys, matching the B2C emvglobal deployment. OIDC would avoid
+# long-lived credentials, but it needs an OIDC provider, a role and a trust policy set up first;
+# this reuses the IAM user that already exists in the account. If these keys are ever exposed,
+# rotate them in IAM and update the repo secrets.
 
 name: Deploy API to ECS
 
@@ -22,7 +24,10 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: emv-b2b-api
   ECS_CLUSTER: vivid-bird-78a9rt
-  ECS_SERVICE: emv-b2b-api
+  ECS_SERVICE: emv-b2b-api-service
+  # The task definition family, which is NOT the service name — the console appends "-service"
+  # to the service but leaves the family alone, and describe-task-definition wants the family.
+  TASK_FAMILY: emv-b2b-api
   # Must match the container name inside the task definition, or the image swap below silently
   # renders a task definition that still points at the old image.
   CONTAINER_NAME: api
@@ -34,7 +39,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write # required for the OIDC token exchange
 
 jobs:
   deploy:
@@ -46,7 +50,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to ECR
@@ -74,7 +79,7 @@ jobs:
           # the console (env vars, secrets, cpu/memory) are preserved instead of being reverted by
           # every deploy. Only the image is replaced, in the step below.
           aws ecs describe-task-definition \
-            --task-definition "$ECS_SERVICE" \
+            --task-definition "$TASK_FAMILY" \
             --query taskDefinition > task-definition.json
 
       - name: Point the task definition at the new image
