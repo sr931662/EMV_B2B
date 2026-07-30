@@ -5,7 +5,16 @@ const ApiError = require('../utils/ApiError');
 const destinationService = require('./destinationService');
 const { generateEmvQuotePdf, resolveStoragePath } = require('./pdfService');
 
-const DESTINATION_SUMMARY = { select: { id: true, name: true, archived: true } };
+const DESTINATION_SUMMARY = {
+  select: {
+    id: true,
+    name: true,
+    archived: true,
+    aboutDestination: true,
+    packages: true,
+    faqs: true,
+  },
+};
 
 // Full itinerary-page payload. Archived child rows are excluded: a package edit archives the
 // previous PackageDay/PackageHotel rows rather than deleting them (locked rule 1), so the

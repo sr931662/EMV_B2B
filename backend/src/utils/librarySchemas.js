@@ -36,10 +36,31 @@ const includeArchivedField = z
 // Destination names are reproduced verbatim in partner white-label PDFs, so they may not carry
 // EMV branding (locked rule 4b) — same reasoning as the package title.
 const destinationNameField = withBrandGuard(requiredText('name'), 'Destination name');
+const destinationMarkdownField = z
+  .string({ error: 'markdown content must be a string' })
+  .trim()
+  .max(50000, 'markdown content must be at most 50000 characters');
 
-const createDestinationSchema = z.object({ name: destinationNameField }).strict();
+const createDestinationSchema = z
+  .object({
+    name: destinationNameField,
+    aboutDestination: destinationMarkdownField.optional(),
+    packages: destinationMarkdownField.optional(),
+    faqs: destinationMarkdownField.optional(),
+  })
+  .strict();
 
-const updateDestinationSchema = z.object({ name: destinationNameField }).strict();
+const updateDestinationSchema = z
+  .object({
+    name: destinationNameField.optional(),
+    aboutDestination: destinationMarkdownField.optional(),
+    packages: destinationMarkdownField.optional(),
+    faqs: destinationMarkdownField.optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    error: 'Provide at least one field to update (name, aboutDestination, packages, faqs)',
+  });
 
 const listDestinationsSchema = z.object({ includeArchived: includeArchivedField }).strict();
 

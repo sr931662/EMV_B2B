@@ -1,6 +1,11 @@
 const prisma = require('../utils/prisma');
 const ApiError = require('../utils/ApiError');
 
+function normalizeNullableText(value) {
+  if (value === undefined) return undefined;
+  return value ? value : null;
+}
+
 /**
  * Guard used by dayTemplateService and hotelService: a library entry may only hang off a
  * destination that exists and is not archived. Lives here because this service owns the
@@ -33,7 +38,7 @@ async function assertActiveDestination(destinationId) {
  * If the match is archived we restore it rather than 409 — otherwise an archived name is
  * permanently unusable, since the unique constraint blocks re-creating it (dead-name lockout).
  */
-async function create({ name }) {
+async function create({ name, aboutDestination, packages, faqs }) {
   const existing = await prisma.destination.findFirst({
     where: { name: { equals: name, mode: 'insensitive' } },
   });
@@ -45,13 +50,27 @@ async function create({ name }) {
   if (existing && existing.archived) {
     const restored = await prisma.destination.update({
       where: { id: existing.id },
-      data: { archived: false, name }, // adopt the casing the caller just supplied
+      data: {
+        archived: false,
+        name,
+        aboutDestination:
+          normalizeNullableText(aboutDestination) ?? existing.aboutDestination,
+        packages: normalizeNullableText(packages) ?? existing.packages,
+        faqs: normalizeNullableText(faqs) ?? existing.faqs,
+      }, // adopt the casing the caller just supplied
     });
 
     return { destination: restored, restored: true };
   }
 
-  const created = await prisma.destination.create({ data: { name } });
+  const created = await prisma.destination.create({
+    data: {
+      name,
+      aboutDestination: normalizeNullableText(aboutDestination) ?? null,
+      packages: normalizeNullableText(packages) ?? null,
+      faqs: normalizeNullableText(faqs) ?? null,
+    },
+  });
 
   return { destination: created, restored: false };
 }
@@ -72,11 +91,19 @@ async function getById(id) {
   return destination;
 }
 
-async function update(id, { name }) {
-  await getById(id); // 404 if missing
+async function update(id, data) {
+  const existing = await getById(id); // 404 if missing
+
+  const nextName = data.name ?? existing.name;
+  const updateData = {
+    ...data,
+    aboutDestination: normalizeNullableText(data.aboutDestination),
+    packages: normalizeNullableText(data.packages),
+    faqs: normalizeNullableText(data.faqs),
+  };
 
   const clash = await prisma.destination.findFirst({
-    where: { name: { equals: name, mode: 'insensitive' }, id: { not: id } },
+    where: { name: { equals: nextName, mode: 'insensitive' }, id: { not: id } },
   });
 
   if (clash) {
@@ -87,7 +114,7 @@ async function update(id, { name }) {
     );
   }
 
-  return prisma.destination.update({ where: { id }, data: { name } });
+  return prisma.destination.update({ where: { id }, data: updateData });
 }
 
 /** Soft delete (locked rule 1) — never a hard delete. */

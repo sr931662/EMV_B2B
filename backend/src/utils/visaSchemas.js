@@ -138,6 +138,9 @@ const createVisaRequestSchema = stripServerOwnedVisaRequest(
   z
     .object({
       visaCountryId: uuidField('visaCountryId'),
+      visaType: z.enum(['REGULAR', 'E_VISA'], {
+        error: 'visaType must be REGULAR or E_VISA',
+      }),
       passengers: passengersField,
       markupAmount: moneyField('markupAmount').optional().default(0),
     })
@@ -157,11 +160,20 @@ const updateVisaRequestSchema = stripServerOwnedVisaRequest(
     .object({
       passengers: passengersField.optional(),
       markupAmount: moneyField('markupAmount').optional(),
+      visaType: z
+        .enum(['REGULAR', 'E_VISA'], {
+          error: 'visaType must be REGULAR or E_VISA',
+        })
+        .optional(),
     })
     .strict()
-    .refine((data) => data.passengers !== undefined || data.markupAmount !== undefined, {
-      error: 'Provide passengers and/or markupAmount to update',
-    })
+    .refine(
+      (data) =>
+        data.passengers !== undefined || data.markupAmount !== undefined || data.visaType !== undefined,
+      {
+        error: 'Provide passengers, markupAmount and/or visaType to update',
+      }
+    )
 );
 
 const listVisaRequestsSchema = z

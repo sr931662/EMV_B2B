@@ -12,6 +12,16 @@ const notificationService = require('./notificationService');
 const afterCommit = require('../utils/afterCommit');
 
 const VISA_DOCUMENT_UPLOAD_DIR_REL = path.join('storage', 'visa-documents');
+const EVISA_DOCUMENT_UPLOAD_DIR_REL = path.join('storage', 'evisa-documents');
+
+const BASE_REQUIRED_DOCUMENTS = [
+  'Passport',
+  'PAN',
+  'Photo',
+  'Flight Tickets (Round Trip)',
+  'Hotel Voucher',
+  'Bank Statement',
+];
 
 // A request may only be edited (passengers replaced) while it is still a draft — once payment
 // starts the commercial/legal facts on it are meant to be fixed, same principle as quotes
@@ -177,6 +187,7 @@ async function getDetailForUser(id, user) {
   const requiredDocuments = await getRequiredDocSnapshot(id);
   const documentReadiness = computeReadiness(visaRequest.passengers, requiredDocuments);
   const pricing = computePricingBlock(visaRequest);
+  const evisaDocumentAvailable = visaRequest.visaType === 'E_VISA' && Boolean(visaRequest.evisaDocumentPath);
 
   return {
     ...visaRequest,
@@ -184,6 +195,7 @@ async function getDetailForUser(id, user) {
     documentReadiness,
     pricing,
     latestPayment: visaRequest.payments[0] ?? null,
+    evisaDocumentAvailable,
   };
 }
 
@@ -198,7 +210,7 @@ async function getDetailForUser(id, user) {
  * applicationNumber collisions are astronomically unlikely (time + random) but the column is
  * @unique, so a retry loop handles the theoretical case cleanly instead of surfacing a raw P2002.
  */
-async function createRequestWithRetry(visaCountryId, passengers, partnerId, pricing, attempt = 0) {
+async function createRequestWithRetry(visaCountryId, visaType, passengers, partnerId, pricing, attempt = 0) {
   const applicationNumber = generateApplicationNumber();
 
   try {
@@ -207,6 +219,7 @@ async function createRequestWithRetry(visaCountryId, passengers, partnerId, pric
         data: {
           partnerId,
           visaCountryId,
+          visaType,
           applicationNumber,
           status: 'APPLICATION_SUBMITTED',
           baseFeeAtRequest: pricing.baseFeeAtRequest,
@@ -222,14 +235,31 @@ async function createRequestWithRetry(visaCountryId, passengers, partnerId, pric
       const currentChecklist = await tx.visaRequiredDocument.findMany({
         where: { visaCountryId, archived: false },
       });
+      const snapshotNames = new Set();
+      const snapshotRows = [];
 
-      if (currentChecklist.length) {
+      for (const name of BASE_REQUIRED_DOCUMENTS) {
+        snapshotNames.add(name);
+        snapshotRows.push({
+          visaRequestId: request.id,
+          documentName: name,
+          isMandatory: true,
+        });
+      }
+
+      for (const doc of currentChecklist) {
+        if (snapshotNames.has(doc.documentName)) continue;
+        snapshotNames.add(doc.documentName);
+        snapshotRows.push({
+          visaRequestId: request.id,
+          documentName: doc.documentName,
+          isMandatory: doc.isMandatory,
+        });
+      }
+
+      if (snapshotRows.length) {
         await tx.visaRequestRequiredDoc.createMany({
-          data: currentChecklist.map((d) => ({
-            visaRequestId: request.id,
-            documentName: d.documentName,
-            isMandatory: d.isMandatory,
-          })),
+          data: snapshotRows,
         });
       }
 
@@ -240,13 +270,13 @@ async function createRequestWithRetry(visaCountryId, passengers, partnerId, pric
       err.code === 'P2002' && (err.meta?.target ?? []).includes('applicationNumber');
 
     if (isApplicationNumberClash && attempt < 5) {
-      return createRequestWithRetry(visaCountryId, passengers, partnerId, pricing, attempt + 1);
+      return createRequestWithRetry(visaCountryId, visaType, passengers, partnerId, pricing, attempt + 1);
     }
     throw err;
   }
 }
 
-async function create({ visaCountryId, passengers, markupAmount = 0 }, user) {
+async function create({ visaCountryId, visaType, passengers, markupAmount = 0 }, user) {
   // 400 if missing/archived; also the source of the fee we freeze below.
   const country = await visaCountryService.assertActiveVisaCountry(visaCountryId);
 
@@ -256,7 +286,7 @@ async function create({ visaCountryId, passengers, markupAmount = 0 }, user) {
   const baseFeeAtRequest = new Prisma.Decimal(country.baseFee);
   const sellingPrice = computeSellingPrice(baseFeeAtRequest, passengers.length, markupAmount);
 
-  const created = await createRequestWithRetry(visaCountryId, passengers, user.id, {
+  const created = await createRequestWithRetry(visaCountryId, visaType, passengers, user.id, {
     baseFeeAtRequest,
     markupAmount: new Prisma.Decimal(markupAmount),
     sellingPrice,
@@ -330,7 +360,7 @@ async function getById(id, user) {
  * live VisaCountry.baseFee — using whichever passenger count and markup are in effect after this
  * edit (existing values for whichever field wasn't sent).
  */
-async function update(id, { passengers, markupAmount }, user) {
+async function update(id, { passengers, markupAmount, visaType }, user) {
   const existing = await getForUser(id, user);
 
   if (!EDITABLE_STATUSES.includes(existing.status)) {
@@ -344,6 +374,7 @@ async function update(id, { passengers, markupAmount }, user) {
     markupAmount !== undefined ? new Prisma.Decimal(markupAmount) : new Prisma.Decimal(existing.markupAmount);
   const effectivePassengerCount = passengers !== undefined ? passengers.length : existing.passengers.length;
   const sellingPrice = computeSellingPrice(existing.baseFeeAtRequest, effectivePassengerCount, effectiveMarkup);
+  const effectiveVisaType = visaType ?? existing.visaType;
 
   await prisma.$transaction(async (tx) => {
     if (passengers !== undefined) {
@@ -367,7 +398,12 @@ async function update(id, { passengers, markupAmount }, user) {
 
     await tx.visaRequest.update({
       where: { id },
-      data: { markupAmount: effectiveMarkup, sellingPrice },
+      data: {
+        markupAmount: effectiveMarkup,
+        sellingPrice,
+        visaType: effectiveVisaType,
+        evisaDocumentPath: effectiveVisaType === 'E_VISA' ? existing.evisaDocumentPath : null,
+      },
     });
   });
 
@@ -493,6 +529,50 @@ async function getDocumentFile(visaRequestId, passengerId, uploadId, user) {
   return { absolutePath, contentType, upload, passengerName: upload.visaPassenger.fullName };
 }
 
+async function attachEvisaDocument(id, file, user) {
+  const existing = await getForUser(id, user);
+
+  if (existing.visaType !== 'E_VISA') {
+    throw ApiError.conflict('An eVisa document can only be uploaded for requests marked as E_VISA.');
+  }
+
+  if (existing.status !== 'VISA_PROCESSING_STARTED') {
+    throw ApiError.conflict(
+      `Cannot upload the eVisa document in status ${existing.status}. Only VISA_PROCESSING_STARTED requests can receive it.`
+    );
+  }
+
+  const relativePath = path
+    .join(EVISA_DOCUMENT_UPLOAD_DIR_REL, path.basename(file.path))
+    .split(path.sep)
+    .join('/');
+
+  await prisma.visaRequest.update({
+    where: { id },
+    data: { evisaDocumentPath: relativePath },
+  });
+
+  return getDetailForUser(id, user);
+}
+
+async function getEvisaDocumentFile(id, user) {
+  const existing = await getForUser(id, user);
+
+  if (existing.visaType !== 'E_VISA') {
+    throw ApiError.notFound('This visa request does not have an eVisa document.');
+  }
+  if (!existing.evisaDocumentPath) {
+    throw ApiError.notFound('No eVisa document has been uploaded for this request.');
+  }
+
+  const absolutePath = resolveStoragePath(existing.evisaDocumentPath);
+  if (!fs.existsSync(absolutePath)) {
+    throw ApiError.notFound('The uploaded eVisa PDF is missing from storage');
+  }
+
+  return { absolutePath, visaRequest: existing };
+}
+
 /** Admin-only: marks visa processing as finished. Only valid once ops has actually started. */
 async function complete(id, user) {
   const existing = await getForUser(id, user);
@@ -599,7 +679,11 @@ module.exports = {
   computeSellingPrice,
   computePricingBlock,
   VISA_DOCUMENT_UPLOAD_DIR_REL,
+  EVISA_DOCUMENT_UPLOAD_DIR_REL,
   EDITABLE_STATUSES,
   NON_ARCHIVABLE_STATUSES,
   REJECTABLE_STATUSES,
+  BASE_REQUIRED_DOCUMENTS,
+  attachEvisaDocument,
+  getEvisaDocumentFile,
 };

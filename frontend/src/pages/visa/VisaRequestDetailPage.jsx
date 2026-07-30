@@ -6,7 +6,7 @@ import ReadinessPanel from '../../components/visa/ReadinessPanel';
 import PassengerCard from '../../components/visa/PassengerCard';
 import PassengerForm from '../../components/visa/PassengerForm';
 import VisaPriceCalcPanel from '../../components/visa/VisaPriceCalcPanel';
-import { apiGet, apiPatch, ApiError } from '../../api/client';
+import { apiDownload, apiGet, apiPatch, ApiError } from '../../api/client';
 import { formatCurrency, formatDateTime } from '../../lib/format';
 import { passengerPayload, validatePassengers } from '../../lib/visaValidators';
 
@@ -24,6 +24,7 @@ function PricingCard({ visaRequest, isEditable, onSaved }) {
   const [markupAmount, setMarkupAmount] = useState(String(pricing.markupAmount));
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [downloadingEvisa, setDownloadingEvisa] = useState(false);
 
   const startEdit = () => {
     setMarkupAmount(String(pricing.markupAmount));
@@ -200,6 +201,22 @@ function VisaRequestDetailPage() {
     status === 'APPLICATION_SUBMITTED' ||
     (status === 'PENDING_VERIFICATION' && payment?.status === 'INFO_REQUESTED');
 
+  const handleDownloadEvisa = async () => {
+    setDownloadingEvisa(true);
+    try {
+      await apiDownload(`/api/visa-requests/${id}/evisa-document`, {
+        filename: `${visaRequest.applicationNumber}-evisa.pdf`,
+      });
+    } catch (err) {
+      showToast({
+        variant: 'danger',
+        message: err instanceof ApiError ? err.message : 'Could not download the eVisa PDF.',
+      });
+    } finally {
+      setDownloadingEvisa(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <Link to="/visa" className="-ml-1 inline-flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium text-neutral-500 transition-colors hover:text-primary-700">
@@ -215,7 +232,9 @@ function VisaRequestDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">{visaRequest.applicationNumber}</h1>
-          <p className="mt-1 text-sm text-neutral-500">{visaRequest.visaCountry?.name}</p>
+          <p className="mt-1 text-sm text-neutral-500">
+            {visaRequest.visaCountry?.name} · {visaRequest.visaType === 'E_VISA' ? 'eVisa' : 'Regular visa'}
+          </p>
         </div>
         <Badge status={status} />
       </div>
@@ -262,6 +281,9 @@ function VisaRequestDetailPage() {
       {status === 'COMPLETED' && (
         <Alert variant="success" title="Visa Completed!">
           This visa application has been completed.
+          {visaRequest.visaType === 'E_VISA' && visaRequest.evisaDocumentAvailable
+            ? ' Your eVisa PDF is ready to download below.'
+            : ''}
         </Alert>
       )}
 
@@ -285,6 +307,30 @@ function VisaRequestDetailPage() {
       )}
 
       <PricingCard visaRequest={visaRequest} isEditable={isEditable} onSaved={loadRequest} />
+
+      {visaRequest.visaType === 'E_VISA' && (
+        <Card title="eVisa document">
+          {visaRequest.evisaDocumentAvailable ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-neutral-600">
+                Download the issued eVisa PDF once operations uploads it after processing.
+              </p>
+              <Button
+                variant="outline"
+                loading={downloadingEvisa}
+                onClick={handleDownloadEvisa}
+                disabled={status !== 'COMPLETED'}
+              >
+                Download eVisa PDF
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-neutral-500">
+              The eVisa PDF will appear here after processing is completed.
+            </p>
+          )}
+        </Card>
+      )}
 
       {!isRejected && status !== 'COMPLETED' && <ReadinessPanel readiness={readiness} />}
 

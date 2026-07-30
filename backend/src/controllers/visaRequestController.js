@@ -85,6 +85,29 @@ const downloadDocumentFile = asyncHandler(async (req, res) => {
   fs.createReadStream(absolutePath).pipe(res);
 });
 
+const downloadEvisaDocumentFile = asyncHandler(async (req, res) => {
+  const { absolutePath, visaRequest } = await visaRequestService.getEvisaDocumentFile(
+    req.params.id,
+    req.user
+  );
+
+  const slug = (s) =>
+    String(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60) || 'evisa';
+  const fileName = `${slug(visaRequest.applicationNumber)}-evisa.pdf`;
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Content-Length', fs.statSync(absolutePath).size);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+
+  fs.createReadStream(absolutePath).pipe(res);
+});
+
 /**
  * Visa payment submission. Mirrors paymentController's quote-payment route exactly, reusing
  * paymentService's shared upload/verification machinery from build step 6 (locked rule 6) —
@@ -124,5 +147,6 @@ module.exports = {
   archive,
   uploadDocument,
   downloadDocumentFile,
+  downloadEvisaDocumentFile,
   submitPayment,
 };

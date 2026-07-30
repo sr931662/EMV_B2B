@@ -11,6 +11,7 @@ import {
   useToast,
 } from '../../components/ui';
 import PackageImage from '../../components/packages/PackageImage';
+import MarkdownContent from '../../components/shared/MarkdownContent';
 import { apiGet, apiDownload, ApiError } from '../../api/client';
 import { formatCurrency, slugify, splitTextBlock } from '../../lib/format';
 import { cn } from '../../lib/cn';
@@ -85,6 +86,15 @@ function ListColumn({ title, items, tone }) {
         </ul>
       )}
     </div>
+  );
+}
+
+function DestinationSection({ title, content }) {
+  return (
+    <Card>
+      <h2 className="mb-3 text-lg font-semibold text-neutral-900">{title}</h2>
+      <MarkdownContent content={content} />
+    </Card>
   );
 }
 
@@ -244,6 +254,10 @@ function PackageDetailPage() {
           ))}
         </div>
       </div>
+
+      <DestinationSection title="About Destination" content={pkg.destination?.aboutDestination} />
+      <DestinationSection title="Packages" content={pkg.destination?.packages} />
+      <DestinationSection title="FAQs" content={pkg.destination?.faqs} />
 
       {pkg.packageHotels?.length > 0 && (
         <div>

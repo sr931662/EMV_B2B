@@ -2,7 +2,31 @@
 // the brief asked for nothing heavier than this. See frontend/API_SURFACE.md for the exact
 // endpoints this is allowed to call.
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+/*
+ * API base URL.
+ *
+ *   - VITE_API_URL set  -> use it verbatim (an absolute origin, for hosting the API separately;
+ *                          or "" for same-origin)
+ *   - production build  -> "" i.e. same origin: relative paths like "/api/quotes"
+ *   - dev              -> http://localhost:4000
+ *
+ * Same-origin is the right production default because CloudFront serves this bundle and proxies
+ * /api/* to the ALB under one hostname, so relative URLs resolve correctly and CORS never applies.
+ *
+ * Two traps this deliberately avoids:
+ *   1. `VITE_API_URL || fallback` would be wrong — "" is falsy, so an intentional same-origin build
+ *      would silently fall back to localhost:4000 and every request would fail in production.
+ *   2. Relying on the deploy script exporting VITE_API_URL="" would be fragile — PowerShell deletes
+ *      an env var that is assigned an empty string, so the same command behaves differently on
+ *      Windows. Keying off import.meta.env.PROD needs no environment variable at all.
+ */
+const RAW_API_URL = import.meta.env.VITE_API_URL;
+const BASE_URL =
+  RAW_API_URL !== undefined
+    ? RAW_API_URL.replace(/\/$/, '')
+    : import.meta.env.PROD
+      ? ''
+      : 'http://localhost:4000';
 const TOKEN_KEY = 'b2b_emv_token';
 
 // --- token storage -----------------------------------------------------------------------

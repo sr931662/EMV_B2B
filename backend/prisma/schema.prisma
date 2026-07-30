@@ -70,6 +70,11 @@ enum VisaRequestStatus {
   REJECTED
 }
 
+enum VisaType {
+  REGULAR
+  E_VISA
+}
+
 // ---------------------------------------------------------------------------
 // Auth & identity
 // ---------------------------------------------------------------------------
@@ -136,8 +141,11 @@ model PartnerProfile {
 // ---------------------------------------------------------------------------
 
 model Destination {
-  id   String @id @default(uuid())
-  name String @unique
+  id               String  @id @default(uuid())
+  name             String  @unique
+  aboutDestination String? @db.Text
+  packages         String? @db.Text
+  faqs             String? @db.Text
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -145,7 +153,9 @@ model Destination {
 
   dayTemplates DayTemplate[]
   hotels       Hotel[]
-  packages     Package[]
+  // Named packageListings, not `packages`, because the intern-maintained `packages`
+  // markdown blob above already owns that name on this model.
+  packageListings Package[]
 
   @@index([archived])
 }
@@ -396,6 +406,7 @@ model VisaRequest {
   applicationNumber String @unique
 
   status VisaRequestStatus @default(APPLICATION_SUBMITTED)
+  visaType VisaType @default(REGULAR)
 
   // The country's baseFee FROZEN at the instant this request was created — copy-on-select
   // (rule 2) applied to visa pricing, the same principle as Quote.rawPriceAtQuote. All
@@ -412,6 +423,7 @@ model VisaRequest {
   // and/or markupAmount are edited.
   markupAmount Decimal @db.Decimal(12, 2) @default(0)
   sellingPrice Decimal @db.Decimal(12, 2) @default(0)
+  evisaDocumentPath String?
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())

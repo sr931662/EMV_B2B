@@ -11,6 +11,7 @@ import {
   Skeleton,
   Switch,
   Table,
+  Textarea,
   useToast,
 } from '../../components/ui';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
@@ -24,8 +25,13 @@ function DestinationsTab({ onChanged }) {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [name, setName] = useState('');
-  const [nameError, setNameError] = useState(null);
+  const [form, setForm] = useState({
+    name: '',
+    aboutDestination: '',
+    packages: '',
+    faqs: '',
+  });
+  const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -45,33 +51,46 @@ function DestinationsTab({ onChanged }) {
 
   const openCreate = () => {
     setEditing(null);
-    setName('');
-    setNameError(null);
+    setForm({ name: '', aboutDestination: '', packages: '', faqs: '' });
+    setErrors({});
     setFormError(null);
     setModalOpen(true);
   };
 
   const openEdit = (d) => {
     setEditing(d);
-    setName(d.name);
-    setNameError(null);
+    setForm({
+      name: d.name ?? '',
+      aboutDestination: d.aboutDestination ?? '',
+      packages: d.packages ?? '',
+      faqs: d.faqs ?? '',
+    });
+    setErrors({});
     setFormError(null);
     setModalOpen(true);
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      setNameError('Required');
+    const nextErrors = {};
+    if (!form.name.trim()) nextErrors.name = 'Required';
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
       return;
     }
     setSaving(true);
     setFormError(null);
     try {
+      const payload = {
+        name: form.name.trim(),
+        aboutDestination: form.aboutDestination.trim(),
+        packages: form.packages.trim(),
+        faqs: form.faqs.trim(),
+      };
       if (editing) {
-        await apiPatch(`/api/destinations/${editing.id}`, { name: name.trim() });
+        await apiPatch(`/api/destinations/${editing.id}`, payload);
         showToast({ variant: 'success', message: 'Destination updated.' });
       } else {
-        const res = await apiPost('/api/destinations', { name: name.trim() });
+        const res = await apiPost('/api/destinations', payload);
         showToast({ variant: 'success', message: res.message });
       }
       setModalOpen(false);
@@ -211,7 +230,36 @@ function DestinationsTab({ onChanged }) {
             {formError}
           </Alert>
         )}
-        <Input label="Name" required value={name} onChange={(e) => setName(e.target.value)} error={nameError} />
+        <div className="mt-4 grid gap-4">
+          <Input
+            label="Name"
+            required
+            value={form.name}
+            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+            error={errors.name}
+          />
+          <Textarea
+            label="About Destination"
+            rows={6}
+            value={form.aboutDestination}
+            onChange={(e) => setForm((prev) => ({ ...prev, aboutDestination: e.target.value }))}
+            hint="Markdown supported, including **bold**, bullet lists and numbered lists."
+          />
+          <Textarea
+            label="Packages"
+            rows={6}
+            value={form.packages}
+            onChange={(e) => setForm((prev) => ({ ...prev, packages: e.target.value }))}
+            hint="Paste destination package highlights or selling points in markdown."
+          />
+          <Textarea
+            label="FAQs"
+            rows={6}
+            value={form.faqs}
+            onChange={(e) => setForm((prev) => ({ ...prev, faqs: e.target.value }))}
+            hint="Keep FAQ content in markdown so it renders cleanly on the itinerary page."
+          />
+        </div>
       </Modal>
     </div>
   );

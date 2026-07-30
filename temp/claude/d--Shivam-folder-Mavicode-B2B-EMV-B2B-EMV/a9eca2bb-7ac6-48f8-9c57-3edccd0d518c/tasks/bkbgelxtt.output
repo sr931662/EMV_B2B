@@ -384,3 +384,97 @@ B2B EMV backend listening on port 4000
 [32m[nodemon] starting `node src/index.js`[39m
 B2B EMV backend listening on port 4000 (development)
 [email] transport = console
+[OTP] partner registration | email=flow1785403686065@testagency.com | code=950242 | expires=2026-07-30T09:38:07.570Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: flow1785403686065@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello flow Travels 1785403686065, Thanks for registering with TravNexa Global. Use the code below to verify your account: 950242 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.count()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\services\reportService.js:64:17
+
+  61   rejected,
+  62   recentActivity,
+  63 ] = await Promise.all([
+→ 64   prisma.user.count(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async Promise.all (index 0)
+    at async Object.getSummary (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\services\reportService.js:63:7)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\controllers\adminReportController.js:5:18 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[OTP] partner registration | email=iso1785403686065@testagency.com | code=050490 | expires=2026-07-30T09:39:24.798Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: iso1785403686065@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello iso Travels 1785403686065, Thanks for registering with TravNexa Global. Use the code below to verify your account: 050490 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=flow1785403792743@testagency.com | code=855958 | expires=2026-07-30T09:39:54.096Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: flow1785403792743@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello flow Travels 1785403792743, Thanks for registering with TravNexa Global. Use the code below to verify your account: 855958 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[OTP] partner registration | email=iso1785403792743@testagency.com | code=050599 | expires=2026-07-30T09:41:02.952Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: iso1785403792743@testagency.com
+Subject: Verify your TravNexa Global partner account
+──────────────────────────────────────────────────────────────────────
+Hello iso Travels 1785403792743, Thanks for registering with TravNexa Global. Use the code below to verify your account: 050599 This code expires in 10 minutes. If you didn't request this, you can ignore this email.
+──────────────────────────────────────────────────────────────────────
+
+[error] PrismaClientKnownRequestError: 
+Invalid `prisma.user.findUnique()` invocation in
+D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\services\authService.js:186:34
+
+  183  * a reset endpoint that 404s is an account-enumeration oracle.
+  184  */
+  185 async function requestPasswordReset(email) {
+→ 186   const user = await prisma.user.findUnique(
+Can't reach database server at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432`.
+    at ei.handleRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:7268)
+    at ei.handleAndLogRequestError (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6593)
+    at ei.request (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:121:6300)
+    at async a (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\node_modules\@prisma\client\runtime\library.js:130:9551)
+    at async Object.requestPasswordReset (D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\services\authService.js:186:16)
+    at async D:\Shivam folder\Mavicode\B2B_EMV\B2B_EMV\backend\src\controllers\authController.js:31:18 {
+  code: 'P1001',
+  meta: {
+    modelName: 'User',
+    database_location: 'ep-round-pond-ayal8m3j.c-5.us-east-2.aws.neon.tech:5432'
+  },
+  clientVersion: '6.19.3'
+}
+[OTP] password reset | email=singhlko19998@gmail.com | code=822620 | expires=2026-07-30T09:55:08.401Z
+
+──────────────────────────────────────────────────────────────────────
+[email:console] To: singhlko19998@gmail.com
+Subject: Reset your TravNexa Global password
+──────────────────────────────────────────────────────────────────────
+Hello, We received a request to reset the password for singhlko19998@gmail.com. Use the code below to continue: 822620 This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.
+──────────────────────────────────────────────────────────────────────
+

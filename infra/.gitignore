@@ -1,0 +1,32 @@
+# =============================================================================
+# Terraform — everything below either holds secrets or is machine-local
+# =============================================================================
+
+# State contains DATABASE_URL and JWT_SECRET in PLAIN TEXT. Never commit it. Move to the encrypted
+# S3 backend in versions.tf before more than one person runs this.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Real variable values, including the DB password.
+terraform.tfvars
+*.auto.tfvars
+!terraform.tfvars.example
+
+# Provider plugins and lock metadata for the local run.
+.terraform/
+.terraform.lock.hcl
+
+# Saved plans can embed secret values.
+*.tfplan
+plan.out
+
+# Crash logs may include variable values.
+crash.log
+crash.*.log
+
+# Local overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

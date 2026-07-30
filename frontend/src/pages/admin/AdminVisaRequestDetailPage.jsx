@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Spinner, useToast } from '../../components/ui';
+import { Alert, Badge, Button, Card, Input, Spinner, useToast } from '../../components/ui';
 import ConfirmModal from '../../components/admin/ConfirmModal';
 import RemarksActionModal from '../../components/admin/RemarksActionModal';
 import FileViewerModal from '../../components/shared/FileViewerModal';
 import VisaStepper from '../../components/visa/VisaStepper';
 import VisaPriceCalcPanel from '../../components/visa/VisaPriceCalcPanel';
-import { apiGet, apiPost, ApiError } from '../../api/client';
+import { apiDownload, apiGet, apiPost, apiUpload, ApiError } from '../../api/client';
 import { formatCurrency, formatDate, formatDateTime } from '../../lib/format';
 
 function AdminDocumentRow({ visaRequestId, passengerId, doc, upload }) {
@@ -49,6 +49,8 @@ function AdminVisaRequestDetailPage() {
   const [error, setError] = useState(null);
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [evisaFile, setEvisaFile] = useState(null);
+  const [uploadingEvisa, setUploadingEvisa] = useState(false);
 
   const loadRequest = () => {
     setLoading(true);
@@ -78,6 +80,44 @@ function AdminVisaRequestDetailPage() {
     showToast({ variant: 'success', message: 'Visa application rejected.' });
   };
 
+  const handleEvisaUpload = async () => {
+    if (!evisaFile) {
+      showToast({ variant: 'danger', message: 'Choose a PDF before uploading.' });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('document', evisaFile);
+
+    setUploadingEvisa(true);
+    try {
+      await apiUpload(`/api/admin/visa-requests/${id}/evisa-document`, formData);
+      setEvisaFile(null);
+      await loadRequest();
+      showToast({ variant: 'success', message: 'eVisa PDF uploaded.' });
+    } catch (err) {
+      showToast({
+        variant: 'danger',
+        message: err instanceof ApiError ? err.message : 'Could not upload the eVisa PDF.',
+      });
+    } finally {
+      setUploadingEvisa(false);
+    }
+  };
+
+  const handleDownloadEvisa = async () => {
+    try {
+      await apiDownload(`/api/visa-requests/${id}/evisa-document`, {
+        filename: `${visaRequest.applicationNumber}-evisa.pdf`,
+      });
+    } catch (err) {
+      showToast({
+        variant: 'danger',
+        message: err instanceof ApiError ? err.message : 'Could not download the eVisa PDF.',
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -105,7 +145,8 @@ function AdminVisaRequestDetailPage() {
           <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">{visaRequest.applicationNumber}</h1>
           <p className="mt-1 text-sm text-neutral-500">
             {visaRequest.partner?.partnerProfile?.companyName ?? visaRequest.partner?.email} &middot;{' '}
-            {visaRequest.visaCountry?.name}
+            {visaRequest.visaCountry?.name} &middot;{' '}
+            {visaRequest.visaType === 'E_VISA' ? 'eVisa' : 'Regular visa'}
           </p>
         </div>
         <Badge status={status} />
@@ -148,6 +189,40 @@ function AdminVisaRequestDetailPage() {
           )}
         </div>
       </Card>
+
+      {visaRequest.visaType === 'E_VISA' && (
+        <Card title="eVisa PDF">
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-neutral-600">
+              Upload the issued eVisa PDF while the request is in processing. Partners will only see
+              the download option once the application is completed.
+            </p>
+            {status === 'VISA_PROCESSING_STARTED' && (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <Input
+                  label="PDF file"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={(e) => setEvisaFile(e.target.files?.[0] ?? null)}
+                />
+                <Button onClick={handleEvisaUpload} loading={uploadingEvisa}>
+                  Upload eVisa PDF
+                </Button>
+              </div>
+            )}
+            {visaRequest.evisaDocumentAvailable ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success-200 bg-success-50 px-4 py-3">
+                <p className="text-sm text-success-800">An eVisa PDF is already attached to this request.</p>
+                <Button variant="outline" size="sm" onClick={handleDownloadEvisa}>
+                  Download current PDF
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-neutral-500">No eVisa PDF uploaded yet.</p>
+            )}
+          </div>
+        </Card>
+      )}
 
       <div>
         <h2 className="mb-3 text-lg font-semibold text-neutral-900">

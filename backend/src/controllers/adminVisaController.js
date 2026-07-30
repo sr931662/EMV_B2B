@@ -8,6 +8,12 @@ const complete = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Visa request marked completed', visaRequest });
 });
 
+const uploadEvisaDocument = asyncHandler(async (req, res) => {
+  const visaRequest = await visaRequestService.attachEvisaDocument(req.params.id, req.file, req.user);
+
+  res.status(201).json({ message: 'eVisa PDF uploaded', visaRequest });
+});
+
 /**
  * Admin-only: rejects the WHOLE application outright (distinct from rejecting one payment —
  * see paymentService.reject, which keeps the application alive at APPLICATION_SUBMITTED).
@@ -22,4 +28,4 @@ const rejectApplication = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Visa application rejected', visaRequest });
 });
 
-module.exports = { complete, rejectApplication };
+module.exports = { complete, uploadEvisaDocument, rejectApplication };

@@ -12,6 +12,8 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 // Payment proof is a phone screenshot or a bank PDF receipt. Nothing else is accepted.
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.pdf'];
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const PDF_ONLY_EXTENSIONS = ['.pdf'];
+const PDF_ONLY_MIME_TYPES = ['application/pdf'];
 
 function storageDir(relativeDir) {
   const abs = path.join(BACKEND_ROOT, relativeDir);
@@ -26,8 +28,10 @@ function storageDir(relativeDir) {
  * handler as a clean 400 rather than multer's own error shape, and so a part-written file from
  * a size-limit abort is removed instead of being left behind.
  */
-function uploadSingle(fieldName, relativeDir) {
+function uploadSingle(fieldName, relativeDir, options = {}) {
   const destination = storageDir(relativeDir);
+  const allowedExtensions = options.allowedExtensions ?? ALLOWED_EXTENSIONS;
+  const allowedMimeTypes = options.allowedMimeTypes ?? ALLOWED_MIME_TYPES;
 
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, destination),
@@ -48,20 +52,20 @@ function uploadSingle(fieldName, relativeDir) {
       // Both checks matter: the extension decides what lands on disk, and the declared MIME
       // type catches a mismatched pair. Neither proves the bytes are really an image — an
       // admin eyeballs the file anyway, and it is only ever served back as an attachment.
-      if (!ALLOWED_EXTENSIONS.includes(ext)) {
-        return cb(
-          ApiError.badRequest(
-            `Unsupported file type "${ext || 'none'}". Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`
-          )
-        );
-      }
-      if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-        return cb(
-          ApiError.badRequest(
-            `Unsupported content type "${file.mimetype}". Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`
-          )
-        );
-      }
+       if (!allowedExtensions.includes(ext)) {
+         return cb(
+           ApiError.badRequest(
+             `Unsupported file type "${ext || 'none'}". Allowed: ${allowedExtensions.join(', ')}`
+           )
+         );
+       }
+       if (!allowedMimeTypes.includes(file.mimetype)) {
+         return cb(
+           ApiError.badRequest(
+             `Unsupported content type "${file.mimetype}". Allowed: ${allowedMimeTypes.join(', ')}`
+           )
+         );
+       }
 
       return cb(null, true);
     },
@@ -111,4 +115,6 @@ module.exports = {
   MAX_BYTES,
   ALLOWED_EXTENSIONS,
   ALLOWED_MIME_TYPES,
+  PDF_ONLY_EXTENSIONS,
+  PDF_ONLY_MIME_TYPES,
 };

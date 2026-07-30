@@ -43,6 +43,13 @@ router.get(
 );
 
 router.get(
+  '/:id/evisa-document',
+  roleMiddleware(...CAN_READ_VISA_REQUESTS),
+  validate(idParamSchema, 'params'),
+  controller.downloadEvisaDocumentFile
+);
+
+router.get(
   '/:id',
   roleMiddleware(...CAN_READ_VISA_REQUESTS),
   validate(idParamSchema, 'params'),

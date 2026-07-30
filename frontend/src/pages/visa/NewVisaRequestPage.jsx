@@ -15,9 +15,11 @@ function NewVisaRequestPage() {
   const [loadError, setLoadError] = useState(null);
 
   const [visaCountryId, setVisaCountryId] = useState(searchParams.get('countryId') ?? '');
+  const [visaType, setVisaType] = useState('REGULAR');
   const [passengers, setPassengers] = useState([emptyPassenger()]);
   const [markupAmount, setMarkupAmount] = useState('0');
   const [countryError, setCountryError] = useState(null);
+  const [visaTypeError, setVisaTypeError] = useState(null);
   const [passengerErrors, setPassengerErrors] = useState([]);
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +45,13 @@ function NewVisaRequestPage() {
       setCountryError(null);
     }
 
+    if (!visaType) {
+      setVisaTypeError('Please select a visa type');
+      hasErrors = true;
+    } else {
+      setVisaTypeError(null);
+    }
+
     const { errors, hasErrors: passengerHasErrors } = validatePassengers(passengers);
     setPassengerErrors(errors);
     if (passengerHasErrors) hasErrors = true;
@@ -53,6 +62,7 @@ function NewVisaRequestPage() {
     try {
       const res = await apiPost('/api/visa-requests', {
         visaCountryId,
+        visaType,
         passengers: passengers.map(passengerPayload),
         markupAmount: Number(markupAmount) || 0,
       });
@@ -83,7 +93,8 @@ function NewVisaRequestPage() {
       <div>
         <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">New Visa Request</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Pick a destination and add every passenger travelling on this application.
+          Pick a destination, choose the visa type, and add every passenger travelling on this
+          application.
         </p>
       </div>
 
@@ -91,17 +102,35 @@ function NewVisaRequestPage() {
         {formError && <Alert variant="danger">{formError}</Alert>}
 
         <Card title="1. Destination country">
-          <Select
-            label="Country"
-            required
-            value={visaCountryId}
-            onChange={(e) => setVisaCountryId(e.target.value)}
-            error={countryError}
-            options={[
-              { value: '', label: 'Select a country...' },
-              ...countries.map((c) => ({ value: c.id, label: c.name })),
-            ]}
-          />
+          <div className="grid gap-4 md:grid-cols-2">
+            <Select
+              label="Country"
+              required
+              value={visaCountryId}
+              onChange={(e) => setVisaCountryId(e.target.value)}
+              error={countryError}
+              options={[
+                { value: '', label: 'Select a country...' },
+                ...countries.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
+            <Select
+              label="Visa type"
+              required
+              value={visaType}
+              onChange={(e) => setVisaType(e.target.value)}
+              error={visaTypeError}
+              hint={
+                visaType === 'E_VISA'
+                  ? 'Completed eVisa requests can later include a downloadable PDF.'
+                  : undefined
+              }
+              options={[
+                { value: 'REGULAR', label: 'Regular visa' },
+                { value: 'E_VISA', label: 'eVisa' },
+              ]}
+            />
+          </div>
         </Card>
 
         <div>

@@ -400,6 +400,11 @@ function AdminVisaConfigPage() {
             requirements for applications already in progress.
           </p>
 
+          <Alert variant="info" className="mb-3">
+            Passport, PAN, Photo, Flight Tickets (Round Trip), Hotel Voucher and Bank Statement are
+            always mandatory for every visa request. Configure only country-specific extras here.
+          </Alert>
+
           {docsError && <Alert variant="danger">{docsError}</Alert>}
 
           {loadingDocs ? (

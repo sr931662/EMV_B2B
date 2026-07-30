@@ -1,0 +1,67 @@
+# =============================================================================
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored — it holds secrets.
+# =============================================================================
+
+aws_region   = "ap-south-1"
+environment  = "prod"
+project_name = "travnexa"
+
+# -----------------------------------------------------------------------------
+# Secrets (required)
+# -----------------------------------------------------------------------------
+# Prefer passing these at the command line or via TF_VAR_* env vars in CI rather than writing them
+# to a file at all:
+#   export TF_VAR_database_url='postgresql://...'
+#   export TF_VAR_jwt_secret="$(openssl rand -hex 32)"
+
+# Your Neon connection string. NOTE: use the *pooled* endpoint (the host containing "-pooler") for
+# a serverless/container deployment — it survives Neon's idle auto-suspend far better than the
+# direct endpoint, which is what produced the P1001 "Can't reach database server" errors locally.
+database_url = "postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
+
+# Minimum 32 characters. Changing it later logs every user out.
+jwt_secret = "generate-with-openssl-rand-hex-32"
+
+# -----------------------------------------------------------------------------
+# SES (required: ses_domain)
+# -----------------------------------------------------------------------------
+ses_domain       = "yourdomain.com"
+ses_from_address  = "TravNexa Global <no-reply@yourdomain.com>"
+# ses_reply_to    = "support@yourdomain.com"
+
+# -----------------------------------------------------------------------------
+# DNS
+# -----------------------------------------------------------------------------
+# Set this if the domain's hosted zone is in Route 53 — Terraform then creates the SES DKIM,
+# MAIL FROM and DMARC records for you. Leave empty for GoDaddy/Cloudflare/etc and add the records
+# from the `ses_dns_records_to_create` output by hand.
+# route53_zone_id = "Z1234567890ABC"
+
+# -----------------------------------------------------------------------------
+# TLS / custom domains (all optional; the stack comes up without them)
+# -----------------------------------------------------------------------------
+# ACM certificate in aws_region, for the ALB's HTTPS listener. Without it the ALB serves plain HTTP
+# and the CloudFront-to-ALB hop is unencrypted — fine for a smoke test, not for production.
+# api_certificate_arn = "arn:aws:acm:ap-south-1:111122223333:certificate/..."
+
+# Custom frontend domain. Its certificate MUST be issued in us-east-1 (a CloudFront requirement).
+# frontend_domain          = "app.yourdomain.com"
+# frontend_certificate_arn = "arn:aws:acm:us-east-1:111122223333:certificate/..."
+
+# -----------------------------------------------------------------------------
+# Sizing and cost
+# -----------------------------------------------------------------------------
+task_cpu    = 512  # 0.5 vCPU
+task_memory = 1024 # MiB
+
+# Leave at 1. Uploads are written to the task's local disk, so a second task cannot serve files the
+# first one received. See DEPLOYMENT.md § Ephemeral storage.
+desired_count = 1
+
+# false puts tasks in public subnets and skips the NAT gateway, saving roughly USD 32/month. The
+# tasks stay unreachable from the internet because their security group only admits the ALB.
+tasks_in_private_subnets = true
+single_nat_gateway       = true
+
+# Deploy by immutable tag (git SHA) rather than "latest" so rollback is possible.
+image_tag = "latest"

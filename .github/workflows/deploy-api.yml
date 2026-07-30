@@ -1,0 +1,96 @@
+# Build the backend image on GitHub's runners, push it to ECR, and roll the ECS service.
+#
+# Nothing here needs Docker on a developer machine, and the runner is linux/amd64 already, so
+# the --platform mismatch that bites when building this image on an ARM Mac cannot happen.
+#
+# Auth is OIDC: the job exchanges a short-lived GitHub token for AWS credentials. No access keys
+# are stored in the repo. See the role setup in the deploy notes before the first run.
+
+name: Deploy API to ECS
+
+on:
+  push:
+    branches: [main]
+    # The frontend deploys separately (Cloudflare Pages), so a pure-frontend commit must not
+    # trigger a backend rollout.
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: emv-b2b-api
+  ECS_CLUSTER: vivid-bird-78a9rt
+  ECS_SERVICE: emv-b2b-api
+  # Must match the container name inside the task definition, or the image swap below silently
+  # renders a task definition that still points at the old image.
+  CONTAINER_NAME: api
+
+# Two deploys racing each other would have them fighting over the service's desired state.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for the OIDC token exchange
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # The commit SHA, never 'latest': an immutable tag is what makes a rollback possible,
+          # and it lets you tell from the console exactly which commit is running.
+          TAG="${GITHUB_SHA::12}"
+          URI="$REGISTRY/$ECR_REPOSITORY:$TAG"
+
+          docker build --platform linux/amd64 -t "$URI" ./backend
+          docker push "$URI"
+
+          echo "uri=$URI" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the live task definition
+        run: |
+          # Read the current definition rather than keeping a copy in the repo, so changes made in
+          # the console (env vars, secrets, cpu/memory) are preserved instead of being reverted by
+          # every deploy. Only the image is replaced, in the step below.
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_SERVICE" \
+            --query taskDefinition > task-definition.json
+
+      - name: Point the task definition at the new image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.image.outputs.uri }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          # Block until ECS reports the rollout stable, so a red X here means a genuinely failed
+          # deploy rather than "the API call was accepted".
+          wait-for-service-stability: true
