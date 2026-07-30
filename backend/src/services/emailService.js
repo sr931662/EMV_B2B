@@ -18,27 +18,67 @@ function consoleTransport() {
   };
 }
 
+/** Pulls the bare address out of either `Name <addr@host>` or a plain `addr@host`. */
+function extractAddress(from) {
+  const angled = /<([^>]+)>/.exec(String(from ?? ''));
+  return (angled ? angled[1] : String(from ?? '')).trim().toLowerCase();
+}
+
+// Cached for the same reason as the SES client below: getTransport() runs on every send, and
+// createTransport builds a connection pool, which must not be rebuilt per email.
+let cachedSmtpTransporter = null;
+// The From/auth mismatch below is a config mistake, not a per-email event — warn once per process
+// rather than on every send.
+let warnedFromMismatch = false;
+
 // Wired but inert until SMTP_* env vars are filled in — the transport is created lazily so
 // missing nodemailer config never breaks app boot, only the (caught) send call at send-time.
 function smtpTransport() {
   const nodemailer = require('nodemailer');
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-  });
+  if (!cachedSmtpTransporter) {
+    cachedSmtpTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: Number(process.env.SMTP_PORT) === 465,
+      auth: process.env.SMTP_USER
+        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+        : undefined,
+    });
+  }
 
   return {
     async send({ to, subject, html, text }) {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || 'TravNexa Global <no-reply@example.com>',
-        to,
-        subject,
-        html,
-        text,
-      });
+      const from = process.env.SMTP_FROM;
+
+      // No fallback address on purpose. A default here would send real mail under a wrong
+      // sender with nothing in the logs to say so — the exact failure this From address is
+      // meant to prevent. Refusing to send is the louder, safer outcome.
+      if (!from) {
+        console.error('[emailService] SMTP_FROM is not set — refusing to send with an unknown sender');
+        return;
+      }
+
+      // Gmail (and most relays) silently REWRITE the From header to the authenticated account
+      // unless the address is that account or a verified "Send mail as" alias. The send still
+      // succeeds, so without this warning the only symptom is the wrong sender showing up in
+      // someone's inbox — invisible from the server side.
+      if (!warnedFromMismatch && process.env.SMTP_USER) {
+        const fromAddress = extractAddress(from);
+        const authAddress = process.env.SMTP_USER.trim().toLowerCase();
+
+        if (fromAddress !== authAddress) {
+          warnedFromMismatch = true;
+          console.warn(
+            `[emailService] SMTP_FROM address (${fromAddress}) differs from SMTP_USER (${authAddress}). ` +
+              'The relay will likely rewrite the From header to the authenticated account, so ' +
+              'recipients will see the wrong sender. Authenticate as the From address, or verify ' +
+              'it as a "Send mail as" alias on the sending account.'
+          );
+        }
+      }
+
+      await cachedSmtpTransporter.sendMail({ from, to, subject, html, text });
     },
   };
 }
