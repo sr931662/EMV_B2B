@@ -140,9 +140,12 @@ async function getVoucher(quoteId, user) {
           },
           packageDays: { where: { archived: false }, orderBy: { dayNumber: 'asc' } },
           packageHotels: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
+          packageTransport: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
         },
       },
       travellers: { where: { archived: false }, orderBy: { createdAt: 'asc' } },
+      transport: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
+      insurance: { where: { archived: false }, orderBy: { createdAt: 'asc' } },
       payments: { where: { archived: false } },
       partner: {
         select: {
@@ -215,6 +218,21 @@ async function getVoucher(quoteId, user) {
         // The calendar date this day falls on, so a guest can match the itinerary to their diary.
         ...withDayName(addDays(travelDate, d.dayNumber - 1)),
       })),
+    },
+
+    // 1b. The travel actually booked for this trip. Falls back to the package's PLAN when nothing
+    // has been booked yet, so an itinerary sent before ticketing still says what is included
+    // rather than showing an empty section.
+    transport: {
+      booked: quote.transport,
+      plan: quote.transport.length === 0 ? quote.package.packageTransport : [],
+    },
+
+    // Travel insurance: the policy bought for this trip, with the package's description of what
+    // is included alongside it.
+    insurance: {
+      policies: quote.insurance,
+      includedInPackage: quote.package.insuranceDetails,
     },
 
     // 4. Traveller details

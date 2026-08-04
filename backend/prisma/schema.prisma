@@ -151,6 +151,14 @@ enum MealType {
   DINNER
 }
 
+enum TransportMode {
+  FLIGHT
+  TRAIN
+  BUS
+  FERRY
+  CAR
+}
+
 // ---------------------------------------------------------------------------
 // Auth & identity
 // ---------------------------------------------------------------------------
@@ -299,6 +307,10 @@ model Package {
   // not about the country.
   faqs String? @db.Text
 
+  // What insurance the package INCLUDES, in prose — "overseas medical to USD 100,000". The actual
+  // policy number a traveller is covered by lives on the quote, because it is issued per booking.
+  insuranceDetails String? @db.Text
+
   // Auto-generated EMV-branded quote PDF. Always available, no payment required.
   emvQuotePdfPath String?
 
@@ -306,10 +318,11 @@ model Package {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  destination   Destination    @relation(fields: [destinationId], references: [id], onDelete: Restrict)
-  packageDays   PackageDay[]
-  packageHotels PackageHotel[]
-  quotes        Quote[]
+  destination      Destination        @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  packageDays      PackageDay[]
+  packageHotels    PackageHotel[]
+  packageTransport PackageTransport[]
+  quotes           Quote[]
 
   @@index([destinationId])
   @@index([archived])
@@ -404,6 +417,41 @@ model PackageDayEvent {
 
   @@index([packageDayId])
   @@index([parentEventId])
+  @@index([archived])
+}
+
+/**
+ * What travel the package INCLUDES, as a plan — "return economy flight, Delhi to Denpasar".
+ *
+ * Deliberately holds no flight number, no date and no PNR. A package is sold for hundreds of
+ * departures; a real flight number here would be correct for one booking and wrong for every
+ * other. The actuals live on QuoteTransport, which is created per trip.
+ */
+model PackageTransport {
+  id        String @id @default(uuid())
+  packageId String
+
+  sortOrder Int           @default(0)
+  mode      TransportMode @default(FLIGHT)
+
+  fromCity String
+  toCity   String
+
+  // Which day of the itinerary this leg falls on, so the day-wise view can show it in place.
+  dayNumber Int?
+
+  // "Economy", "AC Sleeper", "Business" — the class the package promises, not the seat booked.
+  classOfService String?
+
+  notes String? @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Restrict)
+
+  @@index([packageId])
   @@index([archived])
 }
 
@@ -523,10 +571,12 @@ model Quote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  package    Package         @relation(fields: [packageId], references: [id], onDelete: Restrict)
-  partner    User            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  package    Package          @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  partner    User             @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   payments   Payment[]
   travellers QuoteTraveller[]
+  transport  QuoteTransport[]
+  insurance  QuoteInsurance[]
 
   @@index([packageId])
   @@index([partnerId])
@@ -555,6 +605,84 @@ model QuoteTraveller {
   // travel date, and a stored age silently goes stale as the trip approaches.
   dob      DateTime      @db.Date
   type     TravellerType @default(ADULT)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+
+  @@index([quoteId])
+  @@index([archived])
+}
+
+/**
+ * The travel actually booked for one trip — the flight number, the departure time, the seat class.
+ *
+ * Separate from PackageTransport because these are facts about a booking, not about a product.
+ * Times are full timestamps here, unlike everywhere else in the itinerary, because a booked flight
+ * departs at one absolute moment — there is no template left to resolve.
+ */
+model QuoteTransport {
+  id      String @id @default(uuid())
+  quoteId String
+
+  sortOrder Int           @default(0)
+  mode      TransportMode @default(FLIGHT)
+
+  fromCity String
+  toCity   String
+
+  // "IndiGo", "6E-1234", "Airbus A320neo".
+  operator     String?
+  vehicleNumber String?
+  vehicleModel String?
+
+  departureAt DateTime?
+  arrivalAt   DateTime?
+
+  boardingPoint    String?
+  seatClass        String?
+  fareType         String?
+  baggageAllowance String?
+  bookingReference String?
+
+  notes String? @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+
+  @@index([quoteId])
+  @@index([archived])
+}
+
+/**
+ * The insurance policy covering one trip.
+ *
+ * On the quote rather than the package for the same reason as QuoteTransport: a policy number is
+ * issued per booking. Package.insuranceDetails describes what is included; this records what was
+ * actually bought.
+ */
+model QuoteInsurance {
+  id      String @id @default(uuid())
+  quoteId String
+
+  provider     String
+  policyNumber String?
+
+  coverageAmount Decimal? @db.Decimal(12, 2)
+  validFrom      DateTime? @db.Date
+  validTo        DateTime? @db.Date
+
+  // Remote URL to the policy document, not an upload — uploads sit on the container's ephemeral
+  // disk and are destroyed on every deploy, which is not acceptable for a document a traveller
+  // may need to produce at a hospital.
+  documentUrl String?
+
+  notes String? @db.Text
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())

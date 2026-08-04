@@ -176,6 +176,7 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
         },
       },
       packageHotels: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
+      packageTransport: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
     },
   });
 
@@ -188,6 +189,8 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
     const hotel = hotelsByDay.get(day.dayNumber);
 
     return {
+      // Needed by the admin editor, which addresses events as /packages/days/:dayId/events.
+      id: day.id,
       dayNumber: day.dayNumber,
       title: day.title,
       brief: day.brief,
@@ -201,6 +204,8 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
       // Which hotel the guest is in on this day, so the itinerary does not make the reader
       // cross-reference the stay table themselves.
       stayingAt: hotel ? { id: hotel.id, hotelName: hotel.hotelName } : null,
+      // Legs the package places on this day, shown inline rather than only in a separate section.
+      transport: pkg.packageTransport.filter((t) => t.dayNumber === day.dayNumber),
       events: day.events.map(presentEvent),
     };
   });
@@ -216,8 +221,12 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
       inclusions: pkg.inclusions,
       exclusions: pkg.exclusions,
       faqs: pkg.faqs,
+      insuranceDetails: pkg.insuranceDetails,
     },
     hotels: pkg.packageHotels.map(presentHotel),
+    // The PLAN — what travel is included. Never a flight number: see PackageTransport in
+    // schema.prisma for why the actuals live on the quote instead.
+    transport: pkg.packageTransport,
     days,
     visa: await findVisaInfo(pkg.destination.name),
     destinationNotes: {

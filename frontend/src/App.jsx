@@ -36,6 +36,7 @@ import AdminVisaRequestDetailPage from './pages/admin/AdminVisaRequestDetailPage
 import AdminVisaConfigPage from './pages/admin/AdminVisaConfigPage';
 import AdminPackagesListPage from './pages/admin/AdminPackagesListPage';
 import PackageFormPage from './pages/admin/PackageFormPage';
+import AdminItineraryEditorPage from './pages/admin/AdminItineraryEditorPage';
 import StaffUsersPage from './pages/admin/StaffUsersPage';
 import EmailTemplatesPage from './pages/admin/EmailTemplatesPage';
 import EmailTemplateEditPage from './pages/admin/EmailTemplateEditPage';
@@ -86,6 +87,7 @@ function App() {
           <Route path="/admin/agencies/:id" element={<AgencyDetailPage />} />
           <Route path="/admin/packages" element={<AdminPackagesListPage />} />
           <Route path="/admin/packages/new" element={<PackageFormPage />} />
+          <Route path="/admin/packages/:id/itinerary" element={<AdminItineraryEditorPage />} />
           <Route path="/admin/packages/:id/edit" element={<PackageFormPage />} />
           <Route path="/admin/visa-requests" element={<AdminVisaRequestsPage />} />
           <Route path="/admin/visa-requests/:id" element={<AdminVisaRequestDetailPage />} />
