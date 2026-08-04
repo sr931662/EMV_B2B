@@ -6,6 +6,9 @@ export function emptyPassenger() {
     _key: crypto.randomUUID(),
     fullName: '',
     gender: 'Male',
+    // Which of the product's two fees this passenger is charged at. Defaults to ADULT because
+    // that is the common case and because it is the safer default: it never under-charges.
+    passengerType: 'ADULT',
     dob: '',
     nationality: '',
     passportNumber: '',
@@ -49,6 +52,7 @@ export function passengerPayload(p) {
   return {
     fullName: p.fullName.trim(),
     gender: p.gender,
+    passengerType: p.passengerType ?? 'ADULT',
     dob: p.dob,
     nationality: p.nationality.trim(),
     passportNumber: p.passportNumber.trim(),

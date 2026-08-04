@@ -20,13 +20,17 @@ import ComingSoon from './components/layout/ComingSoon';
 import PackageMarketplacePage from './pages/packages/PackageMarketplacePage';
 import PackageDetailPage from './pages/packages/PackageDetailPage';
 import GenerateQuotePage from './pages/packages/GenerateQuotePage';
+import PackageItineraryPage from './pages/packages/PackageItineraryPage';
 import VisaServicesPage from './pages/visa/VisaServicesPage';
+import VisaProductDetailPage from './pages/visa/VisaProductDetailPage';
 import NewVisaRequestPage from './pages/visa/NewVisaRequestPage';
 import VisaRequestDetailPage from './pages/visa/VisaRequestDetailPage';
 import VisaPaymentPage from './pages/visa/VisaPaymentPage';
 import MyQuotesPage from './pages/quotes/MyQuotesPage';
 import QuoteDetailPage from './pages/quotes/QuoteDetailPage';
 import QuotePaymentPage from './pages/quotes/QuotePaymentPage';
+import TripVoucherPage from './pages/quotes/TripVoucherPage';
+import TripTravellersPage from './pages/quotes/TripTravellersPage';
 import AdminVisaRequestsPage from './pages/admin/AdminVisaRequestsPage';
 import AdminVisaRequestDetailPage from './pages/admin/AdminVisaRequestDetailPage';
 import AdminVisaConfigPage from './pages/admin/AdminVisaConfigPage';
@@ -56,13 +60,19 @@ function App() {
           <Route path="/packages" element={<PackageMarketplacePage />} />
           <Route path="/packages/:id" element={<PackageDetailPage />} />
           <Route path="/packages/:id/quote" element={<GenerateQuotePage />} />
+          <Route path="/packages/:id/itinerary" element={<PackageItineraryPage />} />
           <Route path="/visa" element={<VisaServicesPage />} />
           <Route path="/visa/new" element={<NewVisaRequestPage />} />
+          {/* Before '/visa/:id' so the literal 'products' segment wins — otherwise this URL
+              would be read as a visa REQUEST whose id happens to be "products". */}
+          <Route path="/visa/products/:id" element={<VisaProductDetailPage />} />
           <Route path="/visa/:id" element={<VisaRequestDetailPage />} />
           <Route path="/visa/:id/payment" element={<VisaPaymentPage />} />
           <Route path="/quotes" element={<MyQuotesPage />} />
           <Route path="/quotes/:id" element={<QuoteDetailPage />} />
           <Route path="/quotes/:id/payment" element={<QuotePaymentPage />} />
+          <Route path="/quotes/:id/voucher" element={<TripVoucherPage />} />
+          <Route path="/quotes/:id/travellers" element={<TripTravellersPage />} />
         </Route>
       </Route>
 

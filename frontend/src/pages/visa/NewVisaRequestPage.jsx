@@ -5,32 +5,39 @@ import PassengerForm from '../../components/visa/PassengerForm';
 import VisaPriceCalcPanel from '../../components/visa/VisaPriceCalcPanel';
 import { apiGet, apiPost, ApiError } from '../../api/client';
 import { emptyPassenger, passengerPayload, validatePassengers } from '../../lib/visaValidators';
+import { VISA_CATEGORY_LABELS, formatProcessingTime } from '../../lib/visaProducts';
 
 function NewVisaRequestPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [countries, setCountries] = useState([]);
-  const [loadingCountries, setLoadingCountries] = useState(true);
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
-  const [visaCountryId, setVisaCountryId] = useState(searchParams.get('countryId') ?? '');
+  // The marketplace links here with ?productId=..., since a country alone cannot say WHICH of its
+  // visa options the partner picked, and the fee we freeze comes from the product.
+  const [visaProductId, setVisaProductId] = useState(searchParams.get('productId') ?? '');
   const [visaType, setVisaType] = useState('REGULAR');
   const [passengers, setPassengers] = useState([emptyPassenger()]);
   const [markupAmount, setMarkupAmount] = useState('0');
-  const [countryError, setCountryError] = useState(null);
+  const [productError, setProductError] = useState(null);
   const [visaTypeError, setVisaTypeError] = useState(null);
   const [passengerErrors, setPassengerErrors] = useState([]);
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const selectedCountry = countries.find((c) => c.id === visaCountryId);
+  const selectedProduct = products.find((p) => p.id === visaProductId);
 
   useEffect(() => {
-    apiGet('/api/visa-countries')
-      .then((res) => setCountries(res.countries))
-      .catch((err) => setLoadError(err instanceof ApiError ? err.message : 'Failed to load countries.'))
-      .finally(() => setLoadingCountries(false));
+    apiGet('/api/visa-products')
+      .then((res) => {
+        // Visa-free and visa-on-arrival entries are excluded: they are informational, and the API
+        // would reject a request against them anyway. Better to never offer the choice.
+        setProducts(res.products.filter((p) => p.applicable));
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : 'Failed to load visa products.'))
+      .finally(() => setLoadingProducts(false));
   }, []);
 
   const handleSubmit = async (e) => {
@@ -38,11 +45,11 @@ function NewVisaRequestPage() {
     setFormError(null);
 
     let hasErrors = false;
-    if (!visaCountryId) {
-      setCountryError('Please select a destination country');
+    if (!visaProductId) {
+      setProductError('Please select a visa');
       hasErrors = true;
     } else {
-      setCountryError(null);
+      setProductError(null);
     }
 
     if (!visaType) {
@@ -61,7 +68,7 @@ function NewVisaRequestPage() {
     setSubmitting(true);
     try {
       const res = await apiPost('/api/visa-requests', {
-        visaCountryId,
+        visaProductId,
         visaType,
         passengers: passengers.map(passengerPayload),
         markupAmount: Number(markupAmount) || 0,
@@ -76,7 +83,7 @@ function NewVisaRequestPage() {
     }
   };
 
-  if (loadingCountries) {
+  if (loadingProducts) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <Spinner size="lg" />
@@ -93,25 +100,33 @@ function NewVisaRequestPage() {
       <div>
         <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">New Visa Request</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Pick a destination, choose the visa type, and add every passenger travelling on this
-          application.
+          Pick the visa, choose how it will be delivered, and add every passenger travelling on
+          this application.
         </p>
       </div>
 
       <form className="flex flex-col gap-8" onSubmit={handleSubmit} noValidate>
         {formError && <Alert variant="danger">{formError}</Alert>}
 
-        <Card title="1. Destination country">
+        <Card title="1. Visa">
           <div className="grid gap-4 md:grid-cols-2">
             <Select
-              label="Country"
+              label="Destination and visa"
               required
-              value={visaCountryId}
-              onChange={(e) => setVisaCountryId(e.target.value)}
-              error={countryError}
+              value={visaProductId}
+              onChange={(e) => setVisaProductId(e.target.value)}
+              error={productError}
+              hint={
+                selectedProduct
+                  ? `${VISA_CATEGORY_LABELS[selectedProduct.category] ?? selectedProduct.category} — ${formatProcessingTime(selectedProduct)}`
+                  : undefined
+              }
               options={[
-                { value: '', label: 'Select a country...' },
-                ...countries.map((c) => ({ value: c.id, label: c.name })),
+                { value: '', label: 'Select a visa...' },
+                ...products.map((p) => ({
+                  value: p.id,
+                  label: `${p.visaCountry.name} — ${p.name}`,
+                })),
               ]}
             />
             <Select
@@ -140,7 +155,7 @@ function NewVisaRequestPage() {
           <PassengerForm passengers={passengers} setPassengers={setPassengers} errors={passengerErrors} />
         </div>
 
-        {visaCountryId && (
+        {visaProductId && (
           <Card title="3. Pricing">
             <div className="flex flex-col gap-4">
               <Input
@@ -153,8 +168,10 @@ function NewVisaRequestPage() {
                 hint="Added on top of the visa fee — this is your profit."
               />
               <VisaPriceCalcPanel
-                baseFee={selectedCountry?.baseFee ?? 0}
-                passengerCount={passengers.length}
+                adultFee={selectedProduct?.adultFee ?? 0}
+                childFee={selectedProduct?.childFee ?? 0}
+                adultCount={passengers.filter((p) => p.passengerType !== 'CHILD').length}
+                childCount={passengers.filter((p) => p.passengerType === 'CHILD').length}
                 markupAmount={markupAmount}
               />
             </div>

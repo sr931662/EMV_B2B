@@ -6,15 +6,17 @@ const roleMiddleware = require('../middleware/roleMiddleware');
 const validate = require('../middleware/validate');
 const { CAN_WRITE_VISA_CONFIG, CAN_READ_VISA_CONFIG } = require('../utils/roles');
 const {
-  countryIdParamSchema,
-  countryDocParamSchema,
+  productIdParamSchema,
+  productDocParamSchema,
   createVisaDocumentSchema,
   updateVisaDocumentSchema,
   listVisaDocumentsSchema,
 } = require('../utils/visaSchemas');
 
-// Mounted at /api/visa-countries/:countryId/documents — mergeParams so :countryId (matched by
+// Mounted at /api/visa-products/:productId/documents — mergeParams so :productId (matched by
 // the parent mount path) is visible to this router's own param validation and handlers.
+// Product-scoped, not country-scoped: an eVisa and a sticker visa for the same country ask for
+// different paperwork.
 const router = express.Router({ mergeParams: true });
 
 router.use(authMiddleware);
@@ -23,7 +25,7 @@ router.use(authMiddleware);
 router.get(
   '/',
   roleMiddleware(...CAN_READ_VISA_CONFIG),
-  validate(countryIdParamSchema, 'params'),
+  validate(productIdParamSchema, 'params'),
   validate(listVisaDocumentsSchema, 'query'),
   controller.list
 );
@@ -32,27 +34,27 @@ router.get(
 router.post(
   '/',
   roleMiddleware(...CAN_WRITE_VISA_CONFIG),
-  validate(countryIdParamSchema, 'params'),
+  validate(productIdParamSchema, 'params'),
   validate(createVisaDocumentSchema),
   controller.create
 );
 router.patch(
   '/:docId',
   roleMiddleware(...CAN_WRITE_VISA_CONFIG),
-  validate(countryDocParamSchema, 'params'),
+  validate(productDocParamSchema, 'params'),
   validate(updateVisaDocumentSchema),
   controller.update
 );
 router.delete(
   '/:docId',
   roleMiddleware(...CAN_WRITE_VISA_CONFIG),
-  validate(countryDocParamSchema, 'params'),
+  validate(productDocParamSchema, 'params'),
   controller.archive
 );
 router.post(
   '/:docId/restore',
   roleMiddleware(...CAN_WRITE_VISA_CONFIG),
-  validate(countryDocParamSchema, 'params'),
+  validate(productDocParamSchema, 'params'),
   controller.restore
 );
 

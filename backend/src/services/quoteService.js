@@ -1,10 +1,12 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const { Prisma } = require('@prisma/client');
 
 const prisma = require('../utils/prisma');
 const ApiError = require('../utils/ApiError');
 const { generateQuotePdf, resolveStoragePath } = require('./pdfService');
 const notificationService = require('./notificationService');
+const settingsService = require('./settingsService');
 const afterCommit = require('../utils/afterCommit');
 
 // Statuses in which a quote is still the partner's to edit. Once it moves toward booking the
@@ -174,6 +176,17 @@ async function refreshQuotePdf(quoteId) {
   return relativePath;
 }
 
+/**
+ * "TRIP-<YYMMDD>-<random>" — short enough to read over the phone, unique enough in practice.
+ * Same shape and reasoning as visaRequestService.generateApplicationNumber.
+ */
+function generateQuoteNumber() {
+  const stamp = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+  const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
+
+  return `TRIP-${stamp}-${rand}`;
+}
+
 async function create(data, user) {
   const { packageId, markupAmount, branding, ...lead } = data;
 
@@ -185,14 +198,23 @@ async function create(data, user) {
   const rawPriceAtQuote = new Prisma.Decimal(pkg.rawPrice);
   const sellingPrice = computeSellingPrice(rawPriceAtQuote, markupAmount);
 
+  // The TCS rate is frozen alongside the price for the same reason: a customer holding an invoice
+  // must not have it re-taxed when policy changes. Reading the live setting here is the last time
+  // this quote ever looks at it.
+  const tcsRate = await settingsService.getTcsRate();
+  const tcsAmount = settingsService.computeTcs(sellingPrice, tcsRate);
+
   const created = await prisma.quote.create({
     data: {
       packageId,
       partnerId: user.id, // from the token, never from the body
       ...lead,
+      quoteNumber: generateQuoteNumber(),
       rawPriceAtQuote,
       markupAmount,
       sellingPrice,
+      tcsRate,
+      tcsAmount,
       branding,
       status: 'QUOTE_GENERATED',
     },

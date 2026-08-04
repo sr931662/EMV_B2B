@@ -106,7 +106,80 @@ const listPackagesSchema = z
     error: 'minDays cannot be greater than maxDays',
   });
 
+// ---------------------------------------------------------------------------
+// Itinerary day events
+// ---------------------------------------------------------------------------
+
+const DAY_EVENT_TYPES = [
+  'ARRIVAL',
+  'CHECK_IN',
+  'TRANSFER',
+  'SIGHTSEEING',
+  'ACTIVITY',
+  'MEAL',
+  'LEISURE',
+  'CHECK_OUT',
+  'OVERNIGHT',
+  'DEPARTURE',
+];
+
+const MEAL_TYPES = ['BREAKFAST', 'LUNCH', 'DINNER'];
+
+// Minutes from midnight. 1439 is 23:59 — a start time of 1440 would be the next day, which on a
+// day-numbered itinerary belongs to the next day's row.
+const minuteOfDayField = z.coerce
+  .number({ error: 'startMinute must be a number' })
+  .int('startMinute must be a whole number of minutes')
+  .min(0, 'startMinute cannot be negative')
+  .max(1439, 'startMinute must be before midnight (max 1439)');
+
+// Capped at 24h: anything longer is not one event, it is the next day.
+const durationField = z.coerce
+  .number({ error: 'durationMinutes must be a number' })
+  .int('durationMinutes must be a whole number of minutes')
+  .min(0, 'durationMinutes cannot be negative')
+  .max(1440, 'durationMinutes must be at most 24 hours');
+
+const baseEventShape = {
+  title: requiredText('title', 200),
+  description: z.string().trim().max(5000).nullable().optional(),
+  type: z.enum(DAY_EVENT_TYPES, { error: `type must be one of: ${DAY_EVENT_TYPES.join(', ')}` }).optional().default('ACTIVITY'),
+  startMinute: minuteOfDayField.nullable().optional(),
+  durationMinutes: durationField.nullable().optional(),
+  mealsIncluded: z.array(z.enum(MEAL_TYPES)).max(3).optional().default([]),
+  availability: z.string().trim().max(200).nullable().optional(),
+  transferMode: z.string().trim().max(120).nullable().optional(),
+  luggageAllowance: z.string().trim().max(200).nullable().optional(),
+};
+
+// One level of nesting only. A sub-event of a sub-event is a level of detail nobody reading an
+// itinerary wants, and allowing it would make the renderer recursive for no benefit.
+const subEventSchema = z.object(baseEventShape).strict();
+
+const replaceDayEventsSchema = z
+  .object({
+    events: z
+      .array(
+        z
+          .object({ ...baseEventShape, subEvents: z.array(subEventSchema).max(20).optional().default([]) })
+          .strict()
+      )
+      .max(40, 'At most 40 events per day'),
+  })
+  .strict();
+
+const dayIdParamSchema = z.object({ dayId: uuidField('dayId') });
+
+// travelDate resolves the template onto a calendar; without it the itinerary is still complete,
+// it just shows day numbers instead of dates.
+const itineraryQuerySchema = z
+  .object({ travelDate: z.coerce.date({ error: 'travelDate must be a valid date' }).optional() })
+  .strict();
+
 module.exports = {
+  replaceDayEventsSchema,
+  dayIdParamSchema,
+  itineraryQuerySchema,
   idParamSchema,
   createPackageSchema,
   updatePackageSchema,

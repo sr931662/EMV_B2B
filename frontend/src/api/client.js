@@ -132,6 +132,9 @@ async function request(path, { method = 'GET', body, headers = {}, isMultipart =
 const apiGet = (path, opts) => request(path, { ...opts, method: 'GET' });
 const apiPost = (path, body, opts) => request(path, { ...opts, method: 'POST', body });
 const apiPatch = (path, body, opts) => request(path, { ...opts, method: 'PATCH', body });
+// PUT rather than PATCH where the request body IS the new state of a collection — the traveller
+// list is replaced wholesale, so a partial-update verb would misdescribe it.
+const apiPut = (path, body, opts) => request(path, { ...opts, method: 'PUT', body });
 const apiDelete = (path, opts) => request(path, { ...opts, method: 'DELETE' });
 
 /** Multipart helper for payment screenshots / visa documents. `formData` is a FormData you built. */
@@ -197,6 +200,7 @@ export {
   apiGet,
   apiPost,
   apiPatch,
+  apiPut,
   apiDelete,
   apiUpload,
   apiDownload,

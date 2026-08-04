@@ -6,7 +6,7 @@ const { Prisma } = require('@prisma/client');
 const prisma = require('../utils/prisma');
 const ApiError = require('../utils/ApiError');
 const { resolveStoragePath } = require('./pdfService');
-const visaCountryService = require('./visaCountryService');
+const visaProductService = require('./visaProductService');
 const emailService = require('./emailService');
 const notificationService = require('./notificationService');
 const afterCommit = require('../utils/afterCommit');
@@ -37,6 +37,21 @@ const NON_ARCHIVABLE_STATUSES = ['PAYMENT_APPROVED', 'VISA_PROCESSING_STARTED', 
 
 const REQUEST_DETAIL_INCLUDE = {
   visaCountry: { select: { id: true, name: true, archived: true, baseFee: true } },
+  // Null on requests created before visa products existed — every consumer must tolerate that.
+  visaProduct: {
+    select: {
+      id: true,
+      name: true,
+      category: true,
+      adultFee: true,
+      childFee: true,
+      processingDaysMin: true,
+      processingDaysMax: true,
+      validityDays: true,
+      maxStayDays: true,
+      entryType: true,
+    },
+  },
   partner: {
     select: {
       id: true,
@@ -61,17 +76,28 @@ function generateApplicationNumber() {
   return `VISA-${stamp}-${rand}`;
 }
 
+/** Splits a passenger list into how many are charged at each of the product's two rates. */
+function countByType(passengers = []) {
+  const adults = passengers.filter((p) => (p.passengerType ?? 'ADULT') !== 'CHILD').length;
+
+  return { adults, children: passengers.length - adults };
+}
+
 /**
- * sellingPrice = baseFeeAtRequest * passengerCount + markupAmount.
+ * sellingPrice = adults × adultFee + children × childFee + markupAmount.
  *
- * `baseFeeAtRequest` here is always the request's OWN frozen snapshot, never the live
- * VisaCountry.baseFee — frozen once in `create()` below and never re-read from the country
- * afterward. Uses Prisma.Decimal throughout, never JS floats: this value gets invoiced and
- * reconciled against a real payment.
+ * Both fees are always the request's OWN frozen snapshots, never the live product — frozen once in
+ * `create()` below and never re-read afterward, so repricing a product cannot move the numbers on
+ * a request already in flight (copy-on-select, rule 2).
+ *
+ * Uses Prisma.Decimal throughout, never JS floats: this value gets invoiced and reconciled against
+ * a real payment. paymentService derives what the partner owes as sellingPrice − markupAmount, so
+ * it needs no knowledge of the passenger mix — but it does depend on this staying exact.
  */
-function computeSellingPrice(baseFeeAtRequest, passengerCount, markupAmount) {
-  return new Prisma.Decimal(baseFeeAtRequest)
-    .times(passengerCount)
+function computeSellingPrice({ adultFee, childFee, adults, children, markupAmount }) {
+  return new Prisma.Decimal(adultFee)
+    .times(adults)
+    .plus(new Prisma.Decimal(childFee).times(children))
     .plus(new Prisma.Decimal(markupAmount));
 }
 
@@ -84,18 +110,31 @@ function computeSellingPrice(baseFeeAtRequest, passengerCount, markupAmount) {
  */
 function computePricingBlock(visaRequest) {
   const baseFeeAtRequest = new Prisma.Decimal(visaRequest.baseFeeAtRequest);
+  const adultFeeAtRequest = new Prisma.Decimal(visaRequest.adultFeeAtRequest);
+  const childFeeAtRequest = new Prisma.Decimal(visaRequest.childFeeAtRequest);
   const markupAmount = new Prisma.Decimal(visaRequest.markupAmount);
   const passengerCount = visaRequest.passengers.length;
-  const liveCountryFee = new Prisma.Decimal(visaRequest.visaCountry.baseFee);
+  const { adults, children } = countByType(visaRequest.passengers);
+
+  // Compare against the product's live adult fee when there is one, since that is what this
+  // request was priced from. Requests predating visa products have no product and still fall back
+  // to the country fee, which is what they were actually priced from.
+  const liveCountryFee = new Prisma.Decimal(
+    visaRequest.visaProduct?.adultFee ?? visaRequest.visaCountry.baseFee
+  );
 
   return {
     baseFeeAtRequest,
+    adultFeeAtRequest,
+    childFeeAtRequest,
     passengerCount,
-    visaCost: baseFeeAtRequest.times(passengerCount),
+    adultCount: adults,
+    childCount: children,
+    visaCost: adultFeeAtRequest.times(adults).plus(childFeeAtRequest.times(children)),
     markupAmount,
     sellingPrice: new Prisma.Decimal(visaRequest.sellingPrice),
     liveCountryFee,
-    feeChangedSinceRequest: !baseFeeAtRequest.equals(liveCountryFee),
+    feeChangedSinceRequest: !adultFeeAtRequest.equals(liveCountryFee),
   };
 }
 
@@ -210,7 +249,14 @@ async function getDetailForUser(id, user) {
  * applicationNumber collisions are astronomically unlikely (time + random) but the column is
  * @unique, so a retry loop handles the theoretical case cleanly instead of surfacing a raw P2002.
  */
-async function createRequestWithRetry(visaCountryId, visaType, passengers, partnerId, pricing, attempt = 0) {
+async function createRequestWithRetry(
+  { visaCountryId, visaProductId },
+  visaType,
+  passengers,
+  partnerId,
+  pricing,
+  attempt = 0
+) {
   const applicationNumber = generateApplicationNumber();
 
   try {
@@ -219,10 +265,13 @@ async function createRequestWithRetry(visaCountryId, visaType, passengers, partn
         data: {
           partnerId,
           visaCountryId,
+          visaProductId,
           visaType,
           applicationNumber,
           status: 'APPLICATION_SUBMITTED',
           baseFeeAtRequest: pricing.baseFeeAtRequest,
+          adultFeeAtRequest: pricing.adultFeeAtRequest,
+          childFeeAtRequest: pricing.childFeeAtRequest,
           markupAmount: pricing.markupAmount,
           sellingPrice: pricing.sellingPrice,
         },
@@ -232,8 +281,10 @@ async function createRequestWithRetry(visaCountryId, visaType, passengers, partn
         data: passengers.map((p) => ({ ...p, visaRequestId: request.id })),
       });
 
+      // Checklists hang off the PRODUCT, not the country — an eVisa and a sticker visa for the
+      // same country ask for different paperwork.
       const currentChecklist = await tx.visaRequiredDocument.findMany({
-        where: { visaCountryId, archived: false },
+        where: { visaProductId, archived: false },
       });
       const snapshotNames = new Set();
       const snapshotRows = [];
@@ -270,27 +321,56 @@ async function createRequestWithRetry(visaCountryId, visaType, passengers, partn
       err.code === 'P2002' && (err.meta?.target ?? []).includes('applicationNumber');
 
     if (isApplicationNumberClash && attempt < 5) {
-      return createRequestWithRetry(visaCountryId, visaType, passengers, partnerId, pricing, attempt + 1);
+      return createRequestWithRetry(
+        { visaCountryId, visaProductId },
+        visaType,
+        passengers,
+        partnerId,
+        pricing,
+        attempt + 1
+      );
     }
     throw err;
   }
 }
 
-async function create({ visaCountryId, visaType, passengers, markupAmount = 0 }, user) {
-  // 400 if missing/archived; also the source of the fee we freeze below.
-  const country = await visaCountryService.assertActiveVisaCountry(visaCountryId);
+async function create({ visaProductId, visaType, passengers, markupAmount = 0 }, user) {
+  // 400 if missing, archived, under an archived country, or a visa-free / visa-on-arrival entry
+  // that cannot be applied for at all. Also the source of the fee we freeze below.
+  const product = await visaProductService.assertApplicableProduct(visaProductId);
 
   // Freeze the wholesale basis at this instant (copy-on-select, rule 2, applied a fourth time).
-  // From here on this request's economics are independent of the country: repricing it later
+  // From here on this request's economics are independent of the product: repricing it later
   // cannot move this request's numbers.
-  const baseFeeAtRequest = new Prisma.Decimal(country.baseFee);
-  const sellingPrice = computeSellingPrice(baseFeeAtRequest, passengers.length, markupAmount);
+  //
+  // The fee now comes from the PRODUCT rather than the country, because a country can offer
+  // several products at different prices and the country-level fee cannot represent all of them.
+  const adultFeeAtRequest = new Prisma.Decimal(product.adultFee);
+  const childFeeAtRequest = new Prisma.Decimal(product.childFee);
+  const { adults, children } = countByType(passengers);
 
-  const created = await createRequestWithRetry(visaCountryId, visaType, passengers, user.id, {
-    baseFeeAtRequest,
-    markupAmount: new Prisma.Decimal(markupAmount),
-    sellingPrice,
+  const sellingPrice = computeSellingPrice({
+    adultFee: adultFeeAtRequest,
+    childFee: childFeeAtRequest,
+    adults,
+    children,
+    markupAmount,
   });
+
+  const created = await createRequestWithRetry(
+    { visaCountryId: product.visaCountryId, visaProductId },
+    visaType,
+    passengers,
+    user.id,
+    {
+      // Kept equal to the adult fee so anything still reading the original column stays correct.
+      baseFeeAtRequest: adultFeeAtRequest,
+      adultFeeAtRequest,
+      childFeeAtRequest,
+      markupAmount: new Prisma.Decimal(markupAmount),
+      sellingPrice,
+    }
+  );
 
   return getDetailForUser(created.id, user);
 }
@@ -319,6 +399,7 @@ async function list(filters, user) {
       updatedAt: true,
       sellingPrice: true,
       visaCountry: { select: { id: true, name: true } },
+      visaProduct: { select: { id: true, name: true, category: true } },
       partner: {
         select: { id: true, email: true, partnerProfile: { select: { companyName: true } } },
       },
@@ -336,6 +417,9 @@ async function list(filters, user) {
     updatedAt: r.updatedAt,
     sellingPrice: r.sellingPrice,
     countryName: r.visaCountry.name,
+    // Null for requests that predate visa products.
+    productName: r.visaProduct?.name ?? null,
+    visaCategory: r.visaProduct?.category ?? null,
     agencyName: r.partner.partnerProfile?.companyName ?? null,
     passengerCount: r._count.passengers,
   }));
@@ -356,9 +440,10 @@ async function getById(id, user) {
  * edit must not go through the replace-pattern, which would archive every passenger's uploaded
  * documents and reset documentReadiness even though nothing about the passengers changed.
  *
- * sellingPrice is always recomputed from the request's OWN frozen `baseFeeAtRequest` — never the
- * live VisaCountry.baseFee — using whichever passenger count and markup are in effect after this
- * edit (existing values for whichever field wasn't sent).
+ * sellingPrice is always recomputed from the request's OWN frozen fees — never the live product —
+ * using whichever passenger MIX and markup are in effect after this edit (existing values for
+ * whichever field wasn't sent). Adding a child to an existing request therefore charges the child
+ * rate that applied when the request was created, not today's.
  */
 async function update(id, { passengers, markupAmount, visaType }, user) {
   const existing = await getForUser(id, user);
@@ -372,8 +457,15 @@ async function update(id, { passengers, markupAmount, visaType }, user) {
 
   const effectiveMarkup =
     markupAmount !== undefined ? new Prisma.Decimal(markupAmount) : new Prisma.Decimal(existing.markupAmount);
-  const effectivePassengerCount = passengers !== undefined ? passengers.length : existing.passengers.length;
-  const sellingPrice = computeSellingPrice(existing.baseFeeAtRequest, effectivePassengerCount, effectiveMarkup);
+  const effectivePassengers = passengers !== undefined ? passengers : existing.passengers;
+  const { adults, children } = countByType(effectivePassengers);
+  const sellingPrice = computeSellingPrice({
+    adultFee: existing.adultFeeAtRequest,
+    childFee: existing.childFeeAtRequest,
+    adults,
+    children,
+    markupAmount: effectiveMarkup,
+  });
   const effectiveVisaType = visaType ?? existing.visaType;
 
   await prisma.$transaction(async (tx) => {

@@ -8,6 +8,7 @@ const packageRoutes = require('./packageRoutes');
 const quoteRoutes = require('./quoteRoutes');
 const adminPaymentRoutes = require('./adminPaymentRoutes');
 const visaCountryRoutes = require('./visaCountryRoutes');
+const visaProductRoutes = require('./visaProductRoutes');
 const visaDocumentRoutes = require('./visaDocumentRoutes');
 const visaRequestRoutes = require('./visaRequestRoutes');
 const adminVisaRoutes = require('./adminVisaRoutes');
@@ -37,10 +38,14 @@ router.use('/quotes', quoteRoutes);
 router.use('/admin/payments', adminPaymentRoutes);
 
 // Visa services (build step 7).
-// Registered before '/visa-countries' only for readability — the two paths never collide since
-// '/visa-countries/:id' (single segment) cannot match '/visa-countries/:countryId/documents...'
+// Registered before '/visa-products' only for readability — the two paths never collide since
+// '/visa-products/:id' (single segment) cannot match '/visa-products/:productId/documents...'
 // (two extra segments), so mount order does not matter here.
-router.use('/visa-countries/:countryId/documents', visaDocumentRoutes);
+//
+// The checklist hangs off the PRODUCT, not the country: one country can offer several visa
+// options and each asks for different paperwork.
+router.use('/visa-products/:productId/documents', visaDocumentRoutes);
+router.use('/visa-products', visaProductRoutes);
 router.use('/visa-countries', visaCountryRoutes);
 router.use('/visa-requests', visaRequestRoutes);
 router.use('/admin/visa-requests', adminVisaRoutes);

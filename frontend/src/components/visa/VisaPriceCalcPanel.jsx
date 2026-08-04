@@ -1,12 +1,19 @@
 import { formatCurrency } from '../../lib/format';
 
-/** Live "fee x passengers + markup" calculation — visa's equivalent of quotes' PriceCalcPanel.
- * Client-side only for display; the server recomputes and owns the real sellingPrice. */
-function VisaPriceCalcPanel({ baseFee, passengerCount, markupAmount }) {
-  const fee = Number(baseFee) || 0;
-  const count = Number(passengerCount) || 0;
+/**
+ * Live "adults x adult fee + children x child fee + markup" calculation — visa's equivalent of
+ * quotes' PriceCalcPanel.
+ *
+ * Client-side only for display; the server recomputes and owns the real sellingPrice, from the
+ * fees frozen onto the request rather than from anything sent by the browser.
+ */
+function VisaPriceCalcPanel({ adultFee, childFee, adultCount, childCount, markupAmount }) {
+  const adultRate = Number(adultFee) || 0;
+  const childRate = Number(childFee) || 0;
+  const adults = Number(adultCount) || 0;
+  const children = Number(childCount) || 0;
   const markup = Number(markupAmount) || 0;
-  const visaCost = fee * count;
+  const visaCost = adultRate * adults + childRate * children;
   const total = visaCost + markup;
 
   return (
@@ -14,9 +21,14 @@ function VisaPriceCalcPanel({ baseFee, passengerCount, markupAmount }) {
       <div className="grid grid-cols-2 items-center gap-3 text-center sm:grid-cols-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Visa Fee</p>
-          <p className="mt-1 text-lg font-semibold text-neutral-900">
-            {formatCurrency(fee)} &times; {count}
+          <p className="mt-1 text-sm font-semibold text-neutral-900">
+            {formatCurrency(adultRate)} &times; {adults} adult{adults === 1 ? '' : 's'}
           </p>
+          {children > 0 && (
+            <p className="text-sm font-semibold text-neutral-900">
+              {formatCurrency(childRate)} &times; {children} child{children === 1 ? '' : 'ren'}
+            </p>
+          )}
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Visa Cost</p>

@@ -1,5 +1,6 @@
 import { Button, Card, Input, Select } from '../ui';
 import { emptyPassenger } from '../../lib/visaValidators';
+import { PASSENGER_TYPE_OPTIONS } from '../../lib/visaProducts';
 
 const GENDER_OPTIONS = [
   { value: 'Male', label: 'Male' },
@@ -50,6 +51,16 @@ function PassengerForm({ passengers, setPassengers, errors }) {
               value={p.gender}
               onChange={setField(i, 'gender')}
               options={GENDER_OPTIONS}
+            />
+            {/* Drives which of the product's two fees this passenger is charged at. Set here
+                rather than inferred from the date of birth below, because the age at which a
+                consulate stops treating someone as a child varies by country. */}
+            <Select
+              label="Passenger type"
+              required
+              value={p.passengerType ?? 'ADULT'}
+              onChange={setField(i, 'passengerType')}
+              options={PASSENGER_TYPE_OPTIONS}
             />
             <Input
               label="Date of birth"

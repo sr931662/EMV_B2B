@@ -12,6 +12,13 @@ const {
   listPackagesSchema,
 } = require('../utils/packageSchemas');
 
+const itineraryController = require('../controllers/itineraryController');
+const {
+  replaceDayEventsSchema,
+  dayIdParamSchema,
+  itineraryQuerySchema,
+} = require('../utils/packageSchemas');
+
 const router = express.Router();
 
 router.use(authMiddleware);
@@ -71,6 +78,36 @@ router.post(
   roleMiddleware(...CAN_WRITE_PACKAGES),
   validate(idParamSchema, 'params'),
   controller.restore
+);
+
+// ---------------------------------------------------------------------------
+// Day-wise itinerary
+// ---------------------------------------------------------------------------
+//
+// Reading is open to every role that can see packages — partners need the itinerary to sell the
+// trip. Writing is admin-only, like the rest of the package content.
+router.get(
+  '/:id/itinerary',
+  roleMiddleware(...CAN_READ_PACKAGES),
+  validate(idParamSchema, 'params'),
+  validate(itineraryQuerySchema, 'query'),
+  itineraryController.getItinerary
+);
+
+// Nested under the DAY, not the package: an event belongs to one day, and routing through the
+// package would leave the day id as a body field the route could not validate.
+router.get(
+  '/days/:dayId/events',
+  roleMiddleware(...CAN_READ_PACKAGES),
+  validate(dayIdParamSchema, 'params'),
+  itineraryController.listDayEvents
+);
+router.put(
+  '/days/:dayId/events',
+  roleMiddleware(...CAN_WRITE_PACKAGES),
+  validate(dayIdParamSchema, 'params'),
+  validate(replaceDayEventsSchema),
+  itineraryController.replaceDayEvents
 );
 
 module.exports = router;

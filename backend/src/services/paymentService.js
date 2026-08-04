@@ -535,7 +535,28 @@ async function approve(id, adminRemarks, adminUser) {
     });
 
     if (p.quoteId) {
-      await tx.quote.update({ where: { id: p.quoteId }, data: { status: 'BOOKING_CONFIRMED' } });
+      // Trip documents are issued HERE, not at quote time: a voucher references a confirmed
+      // booking, and handing out a voucher number for a trip nobody has paid for would make an
+      // unconfirmed quote look booked.
+      const confirmedQuote = await tx.quote.findUnique({
+        where: { id: p.quoteId },
+        select: { quoteNumber: true, voucherNumber: true },
+      });
+
+      await tx.quote.update({
+        where: { id: p.quoteId },
+        data: {
+          status: 'BOOKING_CONFIRMED',
+          // Only on the first confirmation — a second approved payment against the same trip must
+          // not re-issue documents the customer already holds.
+          ...(confirmedQuote?.voucherNumber
+            ? {}
+            : {
+                voucherNumber: `VCH-${confirmedQuote.quoteNumber.replace(/^TRIP-/, '')}`,
+                itineraryNumber: `ITN-${confirmedQuote.quoteNumber.replace(/^TRIP-/, '')}`,
+              }),
+        },
+      });
     } else if (p.visaRequestId) {
       // Brief allows landing on VISA_PROCESSING_STARTED via one hop or two (through an
       // intermediate PAYMENT_APPROVED write). One hop is used: nothing in this codebase ever

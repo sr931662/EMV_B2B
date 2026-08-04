@@ -30,7 +30,17 @@ async function assertActiveVisaCountry(visaCountryId) {
  * Name matching is case-insensitive. If the match is archived we restore it rather than 409 —
  * same dead-name-lockout reasoning as destinationService.create.
  */
-async function create({ name, baseFee = 0 }) {
+async function create({
+  name,
+  baseFee = 0,
+  shortName,
+  coverImageUrl,
+  flagImageUrl,
+  aboutCountry,
+  arrivalInfo,
+}) {
+  const presentation = { shortName, coverImageUrl, flagImageUrl, aboutCountry, arrivalInfo };
+
   const existing = await prisma.visaCountry.findFirst({
     where: { name: { equals: name, mode: 'insensitive' } },
   });
@@ -42,15 +52,15 @@ async function create({ name, baseFee = 0 }) {
   if (existing && existing.archived) {
     const restored = await prisma.visaCountry.update({
       where: { id: existing.id },
-      // Adopt the casing AND fee the caller just supplied — a "create" that restores an
-      // archived row should behave like a fresh create in every visible respect.
-      data: { archived: false, name, baseFee },
+      // Adopt the casing, fee AND presentation the caller just supplied — a "create" that
+      // restores an archived row should behave like a fresh create in every visible respect.
+      data: { archived: false, name, baseFee, ...presentation },
     });
 
     return { country: restored, restored: true };
   }
 
-  const created = await prisma.visaCountry.create({ data: { name, baseFee } });
+  const created = await prisma.visaCountry.create({ data: { name, baseFee, ...presentation } });
 
   return { country: created, restored: false };
 }
@@ -71,7 +81,10 @@ async function getById(id) {
   return country;
 }
 
-async function update(id, { name, baseFee }) {
+async function update(
+  id,
+  { name, baseFee, shortName, coverImageUrl, flagImageUrl, aboutCountry, arrivalInfo }
+) {
   await getById(id); // 404 if missing
 
   // name is optional here (a baseFee-only edit sends no name) — only run the uniqueness check
@@ -91,9 +104,17 @@ async function update(id, { name, baseFee }) {
     }
   }
 
+  // Each field is copied only when the caller actually sent it, so a partial edit never blanks the
+  // fields it left out. null IS a meaningful value here — it clears an image or short name — so
+  // the test is `!== undefined`, not truthiness.
   const data = {};
   if (name !== undefined) data.name = name;
   if (baseFee !== undefined) data.baseFee = baseFee;
+  if (shortName !== undefined) data.shortName = shortName;
+  if (coverImageUrl !== undefined) data.coverImageUrl = coverImageUrl;
+  if (flagImageUrl !== undefined) data.flagImageUrl = flagImageUrl;
+  if (aboutCountry !== undefined) data.aboutCountry = aboutCountry;
+  if (arrivalInfo !== undefined) data.arrivalInfo = arrivalInfo;
 
   return prisma.visaCountry.update({ where: { id }, data });
 }

@@ -10,7 +10,9 @@ const {
   createQuoteSchema,
   updateQuoteSchema,
   listQuotesSchema,
+  replaceTravellersSchema,
 } = require('../utils/quoteSchemas');
+const voucherController = require('../controllers/voucherController');
 const paymentController = require('../controllers/paymentController');
 const { submitPaymentSchema } = require('../utils/paymentSchemas');
 const { uploadSingle, requireFile } = require('../middleware/upload');
@@ -91,6 +93,32 @@ router.post(
   requireFile('screenshot'),
   validate(submitPaymentSchema),
   paymentController.submitForQuote
+);
+
+// ---------------------------------------------------------------------------
+// Trip voucher + travellers (post-payment flow)
+// ---------------------------------------------------------------------------
+//
+// Read is open to admin as well as the owning partner; the service enforces tenancy so a partner
+// can only ever reach their own trips.
+router.get(
+  '/:id/voucher',
+  roleMiddleware(...CAN_READ_QUOTES),
+  validate(idParamSchema, 'params'),
+  voucherController.getVoucher
+);
+router.get(
+  '/:id/travellers',
+  roleMiddleware(...CAN_READ_QUOTES),
+  validate(idParamSchema, 'params'),
+  voucherController.listTravellers
+);
+router.put(
+  '/:id/travellers',
+  roleMiddleware(...CAN_WRITE_QUOTES),
+  validate(idParamSchema, 'params'),
+  validate(replaceTravellersSchema),
+  voucherController.replaceTravellers
 );
 
 module.exports = router;

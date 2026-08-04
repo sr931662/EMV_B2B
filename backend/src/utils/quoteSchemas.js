@@ -128,4 +128,34 @@ const listQuotesSchema = z
   })
   .strict();
 
-module.exports = { idParamSchema, createQuoteSchema, updateQuoteSchema, listQuotesSchema };
+/**
+ * Replaces the whole traveller list for a quote.
+ *
+ * An empty array is legal: it clears the list. Travellers are collected after pricing, so a
+ * partner must be able to save a partial list and come back — see quoteTravellerService.
+ */
+const replaceTravellersSchema = z
+  .object({
+    travellers: z
+      .array(
+        z
+          .object({
+            fullName: z
+              .string({ error: 'fullName is required' })
+              .trim()
+              .min(1, 'fullName is required')
+              .max(255, 'fullName must be at most 255 characters'),
+            dob: z.coerce.date({ error: 'dob is required and must be a valid date' }),
+            type: z
+              .enum(['ADULT', 'CHILD', 'INFANT'], { error: 'type must be ADULT, CHILD or INFANT' })
+              .optional()
+              .default('ADULT'),
+          })
+          .strict()
+      )
+      .max(30, 'At most 30 travellers per trip'),
+  })
+  .strict();
+
+module.exports = {
+  replaceTravellersSchema, idParamSchema, createQuoteSchema, updateQuoteSchema, listQuotesSchema };

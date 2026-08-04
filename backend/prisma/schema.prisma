@@ -48,6 +48,13 @@ enum QuoteStatus {
   REJECTED
 }
 
+// Mirrors the adults/children/infants split already on Quote.
+enum TravellerType {
+  ADULT
+  CHILD
+  INFANT
+}
+
 enum PaymentType {
   PACKAGE
   VISA
@@ -70,9 +77,78 @@ enum VisaRequestStatus {
   REJECTED
 }
 
+// How the finished visa reaches the partner. Drives VisaRequest.evisaDocumentPath: an E_VISA is
+// delivered as a file the admin uploads, a REGULAR one is stamped in the physical passport.
+// NOT the same axis as VisaCategory below — that is what the product IS, this is what we hand back.
 enum VisaType {
   REGULAR
   E_VISA
+}
+
+// What kind of visa a product is. VISA_FREE and VISA_ON_ARRIVAL are informational: there is
+// nothing to apply for, so visaRequestService refuses to create a request against them.
+enum VisaCategory {
+  VISA_FREE
+  VISA_ON_ARRIVAL
+  E_VISA
+  STICKER_VISA
+}
+
+// Classifies a required document so the "documents required" filter can work on structure rather
+// than on documentName, which is free text an admin types ("Bank Statement" vs "6-month bank
+// statements" vs "Bank stmt") and could never be filtered reliably.
+//
+// The filter profile (only passport / passport + bank / + ITR / with prior visa) is DERIVED from
+// the set of categories on a product, never stored alongside it. Storing it as its own column
+// would let an admin edit the document list and forget the profile, and the filter would then
+// quietly lie about what a product actually needs.
+enum VisaDocumentCategory {
+  PASSPORT
+  BANK_STATEMENT
+  INCOME_TAX_RETURN
+  PRIOR_VISA // an existing US / UK / Schengen visa
+  PHOTO
+  OTHER
+}
+
+// How many times the holder may enter the country on one visa.
+enum VisaEntryType {
+  SINGLE
+  MULTIPLE
+}
+
+// Consulates price children below the adult rate (and sometimes free), so the fee a request is
+// worth depends on the MIX of passengers, not just how many there are.
+enum PassengerType {
+  ADULT
+  CHILD
+}
+
+/**
+ * What a scheduled item on an itinerary day IS.
+ *
+ * Typed rather than free text because the itinerary view renders each kind differently — a
+ * transfer shows a vehicle and luggage allowance, a meal shows what is included, an overnight
+ * shows nothing but a marker — and because "how many sightseeing slots does this package have"
+ * is a question worth being able to ask.
+ */
+enum DayEventType {
+  ARRIVAL
+  CHECK_IN
+  TRANSFER
+  SIGHTSEEING
+  ACTIVITY
+  MEAL
+  LEISURE
+  CHECK_OUT
+  OVERNIGHT
+  DEPARTURE
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +223,11 @@ model Destination {
   packages         String? @db.Text
   faqs             String? @db.Text
 
+  // "Country wise notes" on the voucher. Country-level because they describe the destination, so
+  // every package sold there shows the same text rather than each one repeating it.
+  generalNotes           String? @db.Text
+  toursAndTransfersNotes String? @db.Text
+
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -213,6 +294,11 @@ model Package {
   gallery    String[]
   tags       String[]
 
+  // Markdown, shown at the foot of the itinerary after the exclusions. Package-level rather than
+  // destination-level because the questions are about THIS trip ("is the Bali swing included?"),
+  // not about the country.
+  faqs String? @db.Text
+
   // Auto-generated EMV-branded quote PDF. Always available, no payment required.
   emvQuotePdfPath String?
 
@@ -237,13 +323,87 @@ model PackageDay {
   title       String
   description String @db.Text
 
+  // The one-line summary the itinerary card shows before anyone expands the day. `description`
+  // stays the long-form text underneath it.
+  brief String? @db.Text
+
+  // Operational caveats for this specific day — "carry swimwear", "monument shut on Fridays".
+  // Separate from `description` so the itinerary can style them as a warning rather than burying
+  // them in prose the reader skims.
+  notes String? @db.Text
+
+  // "Inclusions in each daywise itinerary" — what THIS day covers. Package.inclusions stays as the
+  // trip-wide list; this is the per-day breakdown a customer reads while comparing days.
+  inclusions String? @db.Text
+
+  coverImageUrl String?
+
+  // Meals covered on this day. An array rather than three booleans so adding, say, high tea later
+  // is an enum value instead of a migration on every reader.
+  mealsIncluded MealType[]
+
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  package Package @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  package Package           @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  events  PackageDayEvent[]
 
   @@index([packageId])
+  @@index([archived])
+}
+
+/**
+ * One scheduled item inside a day — "Arrive at DPS", "Ubud waterfall tour", "Dinner at hotel".
+ *
+ * Structured rows rather than prose because the itinerary view has to lay them on a timeline,
+ * compute end times from durations, count meals, and render transfers with their own detail. None
+ * of that is possible against a paragraph.
+ *
+ * Sub-events hang off `parentEventId`: a day tour with three stops is one event with three
+ * children, which keeps the top level readable while the detail stays available on expand.
+ */
+model PackageDayEvent {
+  id            String  @id @default(uuid())
+  packageDayId  String
+  parentEventId String?
+
+  sortOrder   Int
+  title       String
+  description String?      @db.Text
+  type        DayEventType @default(ACTIVITY)
+
+  // Minutes from midnight (0-1439) — NOT a timestamp, and not the string "09:30".
+  //
+  // A package is a template sold for hundreds of departure dates, so an absolute date/time here
+  // would be wrong for every trip but one; the real date comes from the quote's travel date plus
+  // the day number. Minutes rather than a string because "ends at start + duration" has to be
+  // arithmetic, and because it orders correctly without parsing.
+  startMinute     Int?
+  durationMinutes Int?
+
+  mealsIncluded MealType[]
+
+  // Free text: "Daily", "Not on Mondays", "Subject to weather". A schedule grammar would be a
+  // small language to write and a smaller one to get right; this is read by humans.
+  availability String?
+
+  // Only meaningful when type = TRANSFER. Kept on the event rather than in a model of its own,
+  // because a transfer between two points on a day IS an item on that day. The actually-booked
+  // vehicle (flight number, PNR) belongs on the trip, never on this template.
+  transferMode     String?
+  luggageAllowance String?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  packageDay  PackageDay        @relation(fields: [packageDayId], references: [id], onDelete: Restrict)
+  parentEvent PackageDayEvent?  @relation("EventSubEvents", fields: [parentEventId], references: [id], onDelete: Restrict)
+  subEvents   PackageDayEvent[] @relation("EventSubEvents")
+
+  @@index([packageDayId])
+  @@index([parentEventId])
   @@index([archived])
 }
 
@@ -253,10 +413,45 @@ model PackageHotel {
   packageId        String
   hotelName        String
   hotelCategory    String
-  hotelDescription String @db.Text
+  hotelDescription String  @db.Text
+  hotelAddress     String? @db.Text
+
+  // Remote URL, not an upload — same reasoning as VisaCountry.coverImageUrl: uploads live on the
+  // container's ephemeral disk and vanish on every deploy, which is fatal for marketing imagery.
+  coverImageUrl String?
+
+  // Our own star rating, 1-5. Distinct from the Google numbers below, which are somebody else's
+  // measurement and are shown as such.
+  starRating Int?
+
+  mapLink          String?
+  googleRating     Decimal? @db.Decimal(2, 1)
+  googleRatingCount Int?
+
+  // Times of day only ("14:00" as 840 minutes from midnight). The DATE a guest checks in is
+  // derived from the quote's travel date — see voucherService.buildStays — so storing one here
+  // would be wrong for every trip but the first.
+  checkInMinute  Int?
+  checkOutMinute Int?
+
+  roomType String?
+  mealPlan String?
+
+  // Null means "not stated" rather than "non-refundable": showing a cancellation stance nobody
+  // entered is worse than showing none.
+  refundable Boolean?
+
+  // "About the selected hotels including services offered".
+  servicesOffered String? @db.Text
+
+  // Nights spent at THIS hotel. Without it there is no way to say when a guest checks in or out:
+  // the voucher's dates are derived by walking the hotels in sortOrder from the quote's travel
+  // date, so the same package sold for two different departures produces two different vouchers.
+  nights Int @default(1)
 
   // 0-based position in the hotelIds array the admin submitted. Hotels are presented in the
   // order the admin chose (flagship first, say), which alphabetical ordering would destroy.
+  // Also the order the voucher walks to lay nights out along the trip.
   sortOrder Int @default(0)
 
   archived  Boolean  @default(false)
@@ -278,6 +473,10 @@ model Quote {
   packageId String
   partnerId String
 
+  // Human-readable trip reference, quoted over the phone and printed at the top of the voucher.
+  // Same role and format family as VisaRequest.applicationNumber — a uuid is unusable for that.
+  quoteNumber String @unique
+
   leadName        String
   contactNumber   String
   email           String
@@ -297,8 +496,26 @@ model Quote {
   markupAmount Decimal @db.Decimal(12, 2)
   sellingPrice Decimal @db.Decimal(12, 2)
 
+  // Tax Collected at Source on overseas tour packages.
+  //
+  // BOTH the rate and the computed amount are frozen here, for the same reason rawPriceAtQuote is:
+  // the rate is set by government policy and changes, and an invoice already handed to a customer
+  // must not silently re-tax itself when it does. Storing only the rate would still let a later
+  // rounding change move the number; storing only the amount would lose the audit trail of which
+  // rate produced it.
+  //
+  // Existing quotes carry 0/0 — they were priced before TCS was modelled, and retroactively adding
+  // tax to them would misstate what the customer was actually told.
+  tcsRate   Decimal @default(0) @db.Decimal(5, 2)
+  tcsAmount Decimal @default(0) @db.Decimal(12, 2)
+
   branding Branding
   pdfPath  String?
+
+  // Issued when the booking is confirmed (payment approved), not at quote time — an unconfirmed
+  // trip has no voucher to reference. Null until then.
+  voucherNumber   String? @unique
+  itineraryNumber String? @unique
 
   status QuoteStatus @default(QUOTE_GENERATED)
 
@@ -306,9 +523,10 @@ model Quote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  package  Package   @relation(fields: [packageId], references: [id], onDelete: Restrict)
-  partner  User      @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  payments Payment[]
+  package    Package         @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  partner    User            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  payments   Payment[]
+  travellers QuoteTraveller[]
 
   @@index([packageId])
   @@index([partnerId])
@@ -319,6 +537,34 @@ model Quote {
 // ---------------------------------------------------------------------------
 // Payments (manual only — UPI/QR/bank + screenshot, admin-verified)
 // ---------------------------------------------------------------------------
+
+/**
+ * A named person travelling on a quote.
+ *
+ * Quote.adults/children/infants stay as the counts the trip was PRICED on, and are what the
+ * partner enters first. These rows are the names the voucher and the hotel need, added later once
+ * the customer confirms. The two are deliberately not forced to agree at the database level: a
+ * partner who has paid for 4 but only knows 2 names yet must still be able to save progress.
+ */
+model QuoteTraveller {
+  id      String @id @default(uuid())
+  quoteId String
+
+  fullName String
+  // Date of birth rather than a typed age: hotel child-occupancy rules are driven by age ON the
+  // travel date, and a stored age silently goes stale as the trip approaches.
+  dob      DateTime      @db.Date
+  type     TravellerType @default(ADULT)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+
+  @@index([quoteId])
+  @@index([archived])
+}
 
 model Payment {
   id   String      @id @default(uuid())
@@ -367,6 +613,25 @@ model VisaCountry {
   id   String @id @default(uuid())
   name String @unique
 
+  // "UAE" next to "United Arab Emirates" — cards are narrow and the full name wraps badly.
+  shortName String?
+
+  // Remote URLs (Cloudinary/S3), NOT uploads. Uploaded files live on the container's ephemeral
+  // disk and are destroyed on every deploy — acceptable for a payment proof that has already been
+  // reviewed, fatal for marketing imagery that must survive. A URL also costs no upload
+  // infrastructure and is served from a CDN.
+  coverImageUrl String?
+  flagImageUrl  String?
+
+  // Markdown, same convention as Destination.aboutDestination — the intern maintains these as
+  // prose, not as structured rows, because they are read top to bottom and never queried.
+  //
+  // Country-level rather than product-level on purpose: what you need on ARRIVAL is a fact about
+  // the border, identical whether the traveller came in on an eVisa or a sticker visa. Putting it
+  // on the product would mean maintaining the same paragraph once per visa option.
+  aboutCountry String? @db.Text
+  arrivalInfo  String? @db.Text
+
   // Wholesale per-passenger visa fee the admin sets. Frozen into VisaRequest.baseFeeAtRequest
   // at the moment a request is created (copy-on-select, rule 2, applied a fourth time) — an
   // admin repricing a country must never move an existing request's numbers.
@@ -376,32 +641,148 @@ model VisaCountry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  requiredDocuments VisaRequiredDocument[]
-  visaRequests      VisaRequest[]
+  products     VisaProduct[]
+  visaRequests VisaRequest[]
 
   @@index([archived])
 }
 
-model VisaRequiredDocument {
-  id            String  @id @default(uuid())
+/**
+ * One sellable visa option for a country — "Tourist eVisa (30 days)", "Visa on Arrival".
+ *
+ * A country is not a product: Thailand offers Visa on Arrival AND an eVisa, with different
+ * processing times, documents and fees, and VisaCountry.baseFee can only hold one of them. Every
+ * filter the marketplace needs (category, speed, documents) is a property of the option, not of
+ * the country, so the options have to be rows of their own.
+ *
+ * VisaCountry.baseFee stays as the country-level default and is what pre-migration requests were
+ * priced from; new requests snapshot VisaProduct.baseFee instead.
+ */
+model VisaProduct {
+  id            String @id @default(uuid())
   visaCountryId String
-  documentName  String
-  isMandatory   Boolean @default(true)
+  name          String
+
+  category VisaCategory
+
+  // Working days, as NUMBERS rather than the bucket the UI shows ("within a week").
+  //
+  // The buckets nest — instant ⊂ within a day ⊂ within a week ⊂ within a month — so a stored
+  // bucket makes "within a month" exclude the instant products unless the hierarchy is hand-coded
+  // in every query. A number makes the filter a plain `processingDaysMax <= n`, which nests for
+  // free, sorts, and still prints the real range ("3–5 working days") on the card.
+  //
+  // Nullable because an admin may not know the timeline yet. A product with no timeline is never
+  // matched by a speed filter — it must not claim a speed it cannot deliver.
+  processingDaysMin Int?
+  processingDaysMax Int?
+
+  // Three different day counts that are easy to confuse, so all three are named explicitly:
+  //   processingDays*  how long it takes to GET the visa   (above)
+  //   validityDays     how long the visa stays valid after issue
+  //   maxStayDays      how long one visit may last
+  // Nullable for the same reason as the processing days — an unknown number must not be printed
+  // on a card as if it were confirmed.
+  validityDays Int?
+  maxStayDays  Int?
+
+  entryType VisaEntryType @default(SINGLE)
+
+  // Per-passenger wholesale fees, frozen onto the request at create time (rule 2).
+  //
+  // Two columns rather than one because consulates price children below adults, so what a request
+  // is worth depends on the passenger MIX. childFee is a real 0 when children travel free — it is
+  // not "unset", which is why it is not nullable.
+  adultFee Decimal @default(0) @db.Decimal(12, 2)
+  childFee Decimal @default(0) @db.Decimal(12, 2)
+
+  // Markdown. Product-level, unlike the country's arrival info: the questions partners ask are
+  // about THIS visa ("can I extend it?", "is biometrics needed?"), and differ between an eVisa and
+  // a sticker visa for the same country.
+  faqs String? @db.Text
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visaCountry VisaCountry @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+  visaCountry       VisaCountry            @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+  requiredDocuments VisaRequiredDocument[]
+  processingSteps   VisaProcessingStep[]
+  visaRequests      VisaRequest[]
 
   @@index([visaCountryId])
   @@index([archived])
+  @@index([category])
+  @@index([processingDaysMax])
+}
+
+/**
+ * One stage of "Processing Timeline — total time, each step explained with estimated time".
+ *
+ * Structured rows rather than a markdown blob, because each step carries its own number of days
+ * and the UI adds them up and renders them as a progress track. Prose could not be summed, and
+ * the total would drift out of step with processingDaysMax the first time someone edited one.
+ */
+model VisaProcessingStep {
+  id            String @id @default(uuid())
+  visaProductId String
+
+  // Explicit rather than relying on insertion order: steps get inserted, reordered and re-added
+  // by the archive-and-replace edit pattern, and "whatever order the rows came back in" is not an
+  // order at all.
+  sortOrder   Int
+  title       String
+  description String? @db.Text
+
+  // Working days for THIS step. Nullable so a step whose duration nobody can commit to
+  // ("consulate review") can still be listed without inventing a number.
+  estimatedDays Int?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaProduct VisaProduct @relation(fields: [visaProductId], references: [id], onDelete: Restrict)
+
+  @@index([visaProductId])
+  @@index([archived])
+}
+
+/**
+ * The document checklist for ONE product, not for the whole country: an eVisa typically needs a
+ * passport scan and a photo, while the sticker visa for the same country wants bank statements and
+ * an ITR. Hanging this off the country would force both to share one list.
+ */
+model VisaRequiredDocument {
+  id            String  @id @default(uuid())
+  visaProductId String
+  documentName  String
+  isMandatory   Boolean @default(true)
+
+  // What kind of document this is, for filtering. documentName stays free text and is what the
+  // partner actually reads; this is the machine-readable half.
+  category VisaDocumentCategory @default(OTHER)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaProduct VisaProduct @relation(fields: [visaProductId], references: [id], onDelete: Restrict)
+
+  @@index([visaProductId])
+  @@index([archived])
+  @@index([category])
 }
 
 model VisaRequest {
   id            String @id @default(uuid())
   partnerId     String
   visaCountryId String
+
+  // Nullable only because requests created before visa products existed have no product to point
+  // at. Every new request sets it — visaRequestService requires a product on create — and
+  // baseFeeAtRequest is snapshotted from the product's fee rather than the country's.
+  visaProductId String?
 
   applicationNumber String @unique
 
@@ -416,7 +797,18 @@ model VisaRequest {
   // APPLICATION_SUBMITTED (see visaRequestService.EDITABLE_STATUSES), so the live count of
   // non-archived VisaPassenger rows IS the count basis right up until payment locks everything —
   // at which point passengers can no longer change, so the count is fixed by construction.
-  baseFeeAtRequest Decimal @db.Decimal(12, 2) @default(0)
+  baseFeeAtRequest Decimal @default(0) @db.Decimal(12, 2)
+
+  // The product's two fees, frozen at the same instant and for the same reason as
+  // baseFeeAtRequest. Both are snapshotted even when no children are travelling: a child added
+  // while the request is still editable must be priced at the rate that applied when the request
+  // was created, not at whatever the admin has changed it to since.
+  //
+  // adultFeeAtRequest is kept equal to baseFeeAtRequest on new requests, so anything still reading
+  // the old column stays correct. baseFeeAtRequest remains the ONLY fee on requests created before
+  // visa products existed.
+  adultFeeAtRequest Decimal @default(0) @db.Decimal(12, 2)
+  childFeeAtRequest Decimal @default(0) @db.Decimal(12, 2)
 
   // Partner's profit. sellingPrice = baseFeeAtRequest * passengerCount + markupAmount, computed
   // server-side on create and recomputed (from the snapshot fee, never live) whenever passengers
@@ -431,12 +823,14 @@ model VisaRequest {
 
   partner             User                     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   visaCountry         VisaCountry              @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+  visaProduct         VisaProduct?             @relation(fields: [visaProductId], references: [id], onDelete: Restrict)
   passengers          VisaPassenger[]
   payments            Payment[]
   requiredDocSnapshot VisaRequestRequiredDoc[]
 
   @@index([partnerId])
   @@index([visaCountryId])
+  @@index([visaProductId])
   @@index([status])
   @@index([archived])
 }
@@ -467,10 +861,16 @@ model VisaPassenger {
   id            String @id @default(uuid())
   visaRequestId String
 
-  fullName       String
-  gender         String
-  dob            DateTime @db.Date
-  nationality    String
+  fullName String
+  gender   String
+
+  // Which of the product's two fees this passenger is charged at. Stored rather than derived from
+  // dob: the adult/child cutoff age differs per country and per consulate, and a stored value
+  // cannot silently reprice an existing request when a passenger has a birthday.
+  passengerType PassengerType @default(ADULT)
+
+  dob         DateTime @db.Date
+  nationality String
   passportNumber String
   passportExpiry DateTime @db.Date
   travelDate     DateTime @db.Date
@@ -525,6 +925,40 @@ model Notification {
   @@index([userId])
   @@index([isRead])
   @@index([archived])
+}
+
+/**
+ * Company-wide prose printed on every voucher — terms, scope of services, cancellation policy,
+ * amendment policy.
+ *
+ * Name-keyed like EmailTemplate, and for the same reason: the app looks these up by a stable key
+ * while an admin edits the wording, so copy changes never need a deploy.
+ */
+model ContentBlock {
+  id    String @id @default(uuid())
+  name  String @unique
+  title String
+  body  String @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archived])
+}
+
+/**
+ * Small key/value store for operational numbers an admin must be able to change without a deploy —
+ * currently the TCS rate.
+ *
+ * Values are strings so one table can hold any setting; each reader parses its own. A column per
+ * setting would mean a migration every time a new one is needed.
+ */
+model AppSetting {
+  key   String @id
+  value String
+
+  updatedAt DateTime @updatedAt
 }
 
 model EmailTemplate {
