@@ -13,6 +13,7 @@ import {
   useToast,
 } from '../../components/ui';
 import VisaSubNav from '../../components/admin/VisaSubNav';
+import ImageUploadField from '../../components/shared/ImageUploadField';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 import { formatCurrency } from '../../lib/format';
 import {
@@ -142,19 +143,20 @@ function CountryModal({ open, onClose, editing, onSaved }) {
           onChange={(e) => setShortName(e.target.value)}
           hint='Used on narrow cards, e.g. "UAE" for United Arab Emirates'
         />
-        <Input
-          label="Cover image URL"
+<ImageUploadField
+          label="Cover image"
+          purpose="visaCountry"
           value={coverImageUrl}
-          onChange={(e) => setCoverImageUrl(e.target.value)}
+          onChange={setCoverImageUrl}
           error={errors.coverImageUrl}
-          hint={!errors.coverImageUrl ? 'Cloudinary/S3 https link. Not an upload — uploads are wiped on every deploy.' : undefined}
         />
-        <Input
-          label="Flag image URL"
+        <ImageUploadField
+          label="Flag image"
+          purpose="visaCountry"
           value={flagImageUrl}
-          onChange={(e) => setFlagImageUrl(e.target.value)}
+          onChange={setFlagImageUrl}
           error={errors.flagImageUrl}
-          hint={!errors.flagImageUrl ? 'e.g. https://flagcdn.com/w320/ae.png' : undefined}
+          hint="Upload one, or use a free flag CDN such as https://flagcdn.com/w320/ae.png"
         />
         <Textarea
           label="About this country"

@@ -7,6 +7,7 @@ const hotelRoutes = require('./hotelRoutes');
 const packageRoutes = require('./packageRoutes');
 const quoteRoutes = require('./quoteRoutes');
 const adminPaymentRoutes = require('./adminPaymentRoutes');
+const uploadRoutes = require('./uploadRoutes');
 const visaCountryRoutes = require('./visaCountryRoutes');
 const visaProductRoutes = require('./visaProductRoutes');
 const visaDocumentRoutes = require('./visaDocumentRoutes');
@@ -36,6 +37,10 @@ router.use('/quotes', quoteRoutes);
 
 // Admin verification queue (build step 6, extended in step 7 for VISA payments). Admin-only.
 router.use('/admin/payments', adminPaymentRoutes);
+
+// Signed direct-to-Cloudinary image uploads. No files pass through this server — see
+// cloudinaryService for why.
+router.use('/uploads', uploadRoutes);
 
 // Visa services (build step 7).
 // Registered before '/visa-products' only for readability — the two paths never collide since
