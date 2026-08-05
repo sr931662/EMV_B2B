@@ -18,13 +18,30 @@ const SAFE_USER_SELECT = {
   updatedAt: true,
 };
 
-// Console log is kept even now that email is wired — it's the fast dev-loop path (no inbox to
-// check) and costs nothing to leave in. The email send is best-effort (never throws) and runs
-// after whatever DB write produced this OTP has already committed.
-async function deliverOtp(purpose, templateName, email, otpCode, otpExpiresAt, extraVars = {}) {
+/**
+ * Logs that an OTP was issued — and, OUTSIDE production, what it was.
+ *
+ * Printing the code is the fast dev loop: no inbox to check, no SMTP to configure. In production
+ * it is an account-takeover hole. An OTP is a bearer credential, so anyone who can read the logs
+ * (CloudWatch, a log aggregator, a support engineer scrolling for something else) can log in as
+ * any user by pasting the code before it expires — no password needed.
+ *
+ * The line is kept in production without the code, because "an OTP was sent to this address at
+ * this time" is genuinely useful when a user says they never received one.
+ */
+function logOtpIssued(purpose, email, otpCode, otpExpiresAt) {
+  const isProduction = process.env.NODE_ENV === 'production';
+
   console.log(
-    `[OTP] ${purpose} | email=${email} | code=${otpCode} | expires=${otpExpiresAt.toISOString()}`
+    `[OTP] ${purpose} | email=${email} | code=${isProduction ? '[redacted]' : otpCode} | ` +
+      `expires=${otpExpiresAt.toISOString()}`
   );
+}
+
+// The email send is best-effort (never throws) and runs after whatever DB write produced this OTP
+// has already committed.
+async function deliverOtp(purpose, templateName, email, otpCode, otpExpiresAt, extraVars = {}) {
+  logOtpIssued(purpose, email, otpCode, otpExpiresAt);
 
   await afterCommit(
     () => emailService.sendTemplatedEmail(templateName, email, { ...extraVars, otp: otpCode }),

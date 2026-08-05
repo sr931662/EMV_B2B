@@ -7,6 +7,7 @@ const ApiError = require('../utils/ApiError');
 const { generateQuotePdf, resolveStoragePath } = require('./pdfService');
 const notificationService = require('./notificationService');
 const settingsService = require('./settingsService');
+const quoteSnapshotService = require('./quoteSnapshotService');
 const afterCommit = require('../utils/afterCommit');
 
 // Statuses in which a quote is still the partner's to edit. Once it moves toward booking the
@@ -204,20 +205,36 @@ async function create(data, user) {
   const tcsRate = await settingsService.getTcsRate();
   const tcsAmount = settingsService.computeTcs(sellingPrice, tcsRate);
 
-  const created = await prisma.quote.create({
-    data: {
+  // The quote and its snapshot are written together, or neither is written.
+  //
+  // A quote without a snapshot would be a promise nobody recorded — the voucher would fall back to
+  // reading the package live, which is exactly the defect this phase closes. Wrapping both in one
+  // transaction makes that state unreachable rather than merely unlikely.
+  const created = await prisma.$transaction(async (tx) => {
+    const quote = await tx.quote.create({
+      data: {
+        packageId,
+        partnerId: user.id, // from the token, never from the body
+        ...lead,
+        quoteNumber: generateQuoteNumber(),
+        rawPriceAtQuote,
+        markupAmount,
+        sellingPrice,
+        tcsRate,
+        tcsAmount,
+        branding,
+        status: 'QUOTE_GENERATED',
+      },
+    });
+
+    await quoteSnapshotService.capture(tx, {
+      quoteId: quote.id,
       packageId,
-      partnerId: user.id, // from the token, never from the body
-      ...lead,
-      quoteNumber: generateQuoteNumber(),
-      rawPriceAtQuote,
-      markupAmount,
-      sellingPrice,
-      tcsRate,
-      tcsAmount,
-      branding,
-      status: 'QUOTE_GENERATED',
-    },
+      travelDate: quote.travelDate,
+      pricing: { rawPriceAtQuote, markupAmount, sellingPrice, tcsRate, tcsAmount },
+    });
+
+    return quote;
   });
 
   await refreshQuotePdf(created.id);
@@ -238,7 +255,7 @@ async function create(data, user) {
 }
 
 async function list(filters, user) {
-  const { partnerId, status, includeArchived = false } = filters;
+  const { partnerId, status, includeArchived = false, limit = 50, offset = 0 } = filters;
 
   const where = {};
   if (!includeArchived) where.archived = false;
@@ -251,11 +268,18 @@ async function list(filters, user) {
     where.partnerId = user.id;
   }
 
-  return prisma.quote.findMany({
-    where,
-    include: QUOTE_DETAIL_INCLUDE,
-    orderBy: { createdAt: 'desc' },
-  });
+  const [quotes, total] = await Promise.all([
+    prisma.quote.findMany({
+      where,
+      include: QUOTE_DETAIL_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.quote.count({ where }),
+  ]);
+
+  return { quotes, total, limit, offset };
 }
 
 /**

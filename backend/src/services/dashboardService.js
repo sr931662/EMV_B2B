@@ -88,7 +88,7 @@ async function getForPartner(user) {
       },
     }),
     notificationService.unreadCount(user),
-    packageService.list({}),
+    packageService.list({ limit: 5 }),
   ]);
 
   return {
@@ -111,7 +111,7 @@ async function getForPartner(user) {
       date: p.updatedAt,
     })),
     unreadNotifications,
-    latestPackages: latestPackages.slice(0, 5),
+    latestPackages: latestPackages.packages,
   };
 }
 

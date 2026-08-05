@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import RequireAuth from './components/auth/RequireAuth';
 import AppLayout from './components/layout/AppLayout';
 import RoleLanding from './pages/RoleLanding';
@@ -37,6 +37,7 @@ import AdminVisaConfigPage from './pages/admin/AdminVisaConfigPage';
 import AdminPackagesListPage from './pages/admin/AdminPackagesListPage';
 import PackageFormPage from './pages/admin/PackageFormPage';
 import AdminItineraryEditorPage from './pages/admin/AdminItineraryEditorPage';
+import LibraryShellPage from './pages/admin/LibraryShellPage';
 import StaffUsersPage from './pages/admin/StaffUsersPage';
 import EmailTemplatesPage from './pages/admin/EmailTemplatesPage';
 import EmailTemplateEditPage from './pages/admin/EmailTemplateEditPage';
@@ -92,6 +93,10 @@ function App() {
           <Route path="/admin/visa-requests" element={<AdminVisaRequestsPage />} />
           <Route path="/admin/visa-requests/:id" element={<AdminVisaRequestDetailPage />} />
           <Route path="/admin/visa-config" element={<AdminVisaConfigPage />} />
+          {/* The master-data browser lives inside /library as a tab, not as a screen of its own —
+              two Libraries is the duplication this whole migration set out to remove. Kept as a
+              redirect because the URL was shared while it existed. */}
+          <Route path="/admin/master-data" element={<Navigate to="/library" replace />} />
           <Route path="/admin/staff" element={<StaffUsersPage />} />
           <Route path="/admin/templates" element={<EmailTemplatesPage />} />
           <Route path="/admin/templates/new" element={<EmailTemplateEditPage />} />

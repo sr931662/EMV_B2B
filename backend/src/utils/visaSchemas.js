@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { paginationFields } = require('./paginationSchema');
 
 const MAX_PRICE = 9999999999.99; // Decimal(12,2)
 
@@ -95,7 +96,9 @@ const updateVisaCountrySchema = z
     error: 'Provide at least one field to update (name, baseFee)',
   });
 
-const listVisaCountriesSchema = z.object({ includeArchived: includeArchivedField }).strict();
+const listVisaCountriesSchema = z
+  .object({ includeArchived: includeArchivedField, ...paginationFields })
+  .strict();
 
 // ---------------------------------------------------------------------------
 // Visa products
@@ -129,6 +132,13 @@ const processingDaysField = (label) =>
 // document routes, so an admin can define a product and its paperwork in one submit.
 const requiredDocumentField = z
   .object({
+    // Phase 6: the checklist points at a DocumentType from the library. Optional rather than
+    // required because a product may legitimately ask for something the library has not got a name
+    // for yet, and blocking the save would send people back to typing free text — the habit this
+    // whole migration exists to break.
+    documentTypeId: z.uuid('documentTypeId must be a valid UUID').nullable().optional(),
+    // Still the authored label, and still required: a product may say "Passport (first and last
+    // page)" where the type is simply "Passport", and it is this string that gets printed.
     documentName: requiredText('documentName', 200),
     isMandatory: z.boolean({ error: 'isMandatory must be true or false' }).optional().default(true),
     category: z
@@ -245,6 +255,7 @@ const listVisaProductsSchema = z
       .optional()
       .transform((v) => v === 'true'),
     includeArchived: includeArchivedField,
+    ...paginationFields,
   })
   .strict()
   .refine((q) => !q.travelDate || q.travelDate.getTime() >= Date.now() - 86_400_000, {
@@ -282,7 +293,9 @@ const updateVisaDocumentSchema = z
     error: 'Provide at least one field to update (documentName, isMandatory, category)',
   });
 
-const listVisaDocumentsSchema = z.object({ includeArchived: includeArchivedField }).strict();
+const listVisaDocumentsSchema = z
+  .object({ includeArchived: includeArchivedField, ...paginationFields })
+  .strict();
 
 // ---------------------------------------------------------------------------
 // Visa requests + passengers
@@ -385,6 +398,7 @@ const listVisaRequestsSchema = z
       )
       .optional(),
     includeArchived: includeArchivedField,
+    ...paginationFields,
   })
   .strict();
 

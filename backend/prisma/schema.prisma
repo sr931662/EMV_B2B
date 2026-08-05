@@ -159,6 +159,96 @@ enum TransportMode {
   CAR
 }
 
+
+// How a cancellation charge is worked out. Three shapes because the industry genuinely uses three,
+// and flattening them into "amount" loses which one was agreed.
+enum CancellationChargeType {
+  // A share of the trip value. The common case for land packages.
+  PERCENT_OF_TOTAL
+  // A flat sum, which is why a tier carries its own currency.
+  FIXED_AMOUNT
+  // "First night non-refundable" — a hotel charge expressed in nights, not money, so it stays
+  // correct when the rate changes.
+  NIGHTS
+  // Nothing is charged. Stored explicitly rather than as 0 PERCENT so a free-cancellation window
+  // reads as a decision rather than an unset value.
+  NONE
+}
+
+// What a note block is for. Drives where it is offered, not how it renders — every one of these is
+// markdown printed in a section of a document.
+enum NoteBlockType {
+  TERMS_AND_CONDITIONS
+  SCOPE_OF_SERVICES
+  CANCELLATION_POLICY_TEXT
+  AMENDMENT_POLICY
+  GENERAL_NOTE
+  TOURS_AND_TRANSFERS_NOTE
+  VISA_NOTE
+  PAYMENT_TERMS
+  OTHER
+}
+
+// Who has to produce a document. Decides whether the checklist asks once per booking or once per
+// traveller — asking for four passports and one air ticket is the difference.
+enum DocumentSubject {
+  TRAVELLER
+  BOOKING
+}
+
+
+// What a vendor supplies. One vendor may supply several things, which is why this is on the
+// relationship where it matters rather than being a single label on the vendor.
+enum VendorType {
+  HOTEL_SUPPLIER
+  DMC
+  TRANSPORT
+  ACTIVITY
+  INSURANCE
+  VISA
+  OTHER
+}
+
+/// What a hotel rate is quoted against.
+///
+/// A number without this is not a price. "4500" is per room per night from one supplier and per
+/// person per night from the next, and the difference for a family of four is threefold.
+enum RateBasis {
+  PER_ROOM_PER_NIGHT
+  PER_PERSON_PER_NIGHT
+  PER_ROOM_PER_STAY
+  PER_PERSON_PER_STAY
+}
+
+/// Who the rate line covers. Room occupancy and child policy in one list because that is how
+/// contracts are actually written — "child with bed" sits alongside "triple", not in another table.
+enum Occupancy {
+  SINGLE
+  DOUBLE
+  TRIPLE
+  QUAD
+  EXTRA_ADULT
+  CHILD_WITH_BED
+  CHILD_NO_BED
+  INFANT
+}
+
+/// Who an activity rate covers.
+enum PaxType {
+  ADULT
+  CHILD
+  INFANT
+  // A flat price for the whole group regardless of headcount — how private transfers are sold.
+  GROUP
+}
+
+/// Seat-in-coach or private. The single biggest driver of an activity's price.
+enum TransferBasis {
+  SIC
+  PRIVATE
+  NONE
+}
+
 // ---------------------------------------------------------------------------
 // Auth & identity
 // ---------------------------------------------------------------------------
@@ -224,12 +314,115 @@ model PartnerProfile {
 // Reference data / intern-maintained library
 // ---------------------------------------------------------------------------
 
+
+/**
+ * A country, as a knowledge base rather than a name.
+ *
+ * PHASE 3, EXPAND STEP. Two problems this fixes:
+ *
+ *   1. `Destination` conflated country and city. "Dubai" and "United Arab Emirates" were the same
+ *      kind of row, so a package could not say which city it visited inside which country.
+ *   2. `VisaCountry` was a SECOND table for the same real-world thing, matched to Destination by
+ *      comparing name strings. Spell one "UAE" and the other "United Arab Emirates" and the visa
+ *      section silently went blank with no error anywhere.
+ *
+ * Country is now the single row for a country. VisaCountry still exists and still works — this
+ * migration expands and backfills only. Contracting it away happens once every consumer reads
+ * through Country, which is deliberately a later step: nothing is dropped in the same change that
+ * adds its replacement.
+ */
+model Country {
+  id String @id @default(uuid())
+
+  name String @unique
+  // ISO 3166-1. alpha2 is what flag CDNs and phone libraries key on; alpha3 is what airlines and
+  // visa systems tend to use. Both, because converting between them at read time is a lookup table
+  // nobody wants to own.
+  isoAlpha2 String? @unique
+  isoAlpha3 String? @unique
+  dialCode  String?
+  slug      String  @unique
+
+  shortName    String?
+  description  String? @db.Text
+  flagImageUrl String?
+  heroImageUrl String?
+
+  // A country's default currency. Not a constraint on what a package may be priced in — that is the
+  // package's own choice — but the sensible default when quoting locally.
+  currencyCode String?
+
+  languages String[]
+  timeZones String[]
+
+  emergencyContacts String? @db.Text
+  embassyDetails    String? @db.Text
+  weatherSummary    String? @db.Text
+  // Month numbers 1-12. An array rather than a free-text season so "which countries are good in
+  // March" is a query rather than a reading exercise.
+  bestMonths        Int[]
+
+  travelNotes String? @db.Text
+
+  // Absorbed from VisaCountry at the contract step. Wholesale per-passenger visa fee, frozen into
+  // VisaRequest.baseFeeAtRequest at the moment a request is created (copy-on-select, rule 2) — an
+  // admin repricing a country must never move an existing request's numbers. A fallback only. What
+  // a partner actually pays comes from the VisaProduct they pick.
+  baseFee Decimal @default(0) @db.Decimal(12, 2)
+
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  currency     Currency?     @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+  destinations Destination[]
+  visaProducts VisaProduct[]
+  visaRequests VisaRequest[]
+  vendors      Vendor[]
+
+  @@index([archived])
+  @@index([currencyCode])
+  // Declared here, not only in raw SQL, so Prisma stops planning a DROP for an index it
+  // cannot see. A trigram index created outside the schema is invisible to drift detection
+  // and gets removed by the next unrelated migration.
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "Country_searchText_trgm")
+}
+
 model Destination {
   id               String  @id @default(uuid())
+  searchText       String  @default("")
   name             String  @unique
   aboutDestination String? @db.Text
   packages         String? @db.Text
   faqs             String? @db.Text
+
+  // The country this destination sits inside. Nullable through the expand phase so existing rows
+  // keep working while the backfill runs; made required once every writer sets it.
+  countryId String?
+
+  // City-level identity. A destination is Tokyo, not Japan.
+  state     String?
+  city      String?
+  shortCode String?
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+  timeZone  String?
+
+  bestSeason     String?
+  weatherSummary String? @db.Text
+
+  // Future-ready, and cheap now: writing these columns later means a migration on a table that by
+  // then has real traffic.
+  seoTitle       String?
+  seoDescription String? @db.Text
+  seoKeywords    String[]
+
+  // Presentation, mirroring Country so a destination card and a country card can look the same.
+  shortName     String?
+  coverImageUrl String?
+  flagImageUrl  String?
 
   // "Country wise notes" on the voucher. Country-level because they describe the destination, so
   // every package sold there shows the same text rather than each one repeating it.
@@ -240,47 +433,156 @@ model Destination {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  country      Country?      @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  activities   Activity[]
   dayTemplates DayTemplate[]
   hotels       Hotel[]
   // Named packageListings, not `packages`, because the intern-maintained `packages`
   // markdown blob above already owns that name on this model.
   packageListings Package[]
+  holidayTypes    HolidayTypeOnDestination[]
 
   @@index([archived])
+  @@index([countryId])
+  // Declared here, not only in raw SQL, so Prisma stops planning a DROP for an index it
+  // cannot see. A trigram index created outside the schema is invisible to drift detection
+  // and gets removed by the next unrelated migration.
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "Destination_searchText_trgm")
 }
 
+/**
+ * A reusable itinerary day.
+ *
+ * Carries the same content a PackageDay does, including its own schedule of events, so selecting a
+ * template drops a fully-formed day into a package rather than a title and a paragraph the admin
+ * then has to rebuild event by event.
+ */
 model DayTemplate {
   id            String @id @default(uuid())
   destinationId String
   title         String
   description   String @db.Text
 
+  brief         String?    @db.Text
+  notes         String?    @db.Text
+  inclusions    String?    @db.Text
+  coverImageUrl String?
+  mealsIncluded MealType[]
+
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  destination Destination        @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  events      DayTemplateEvent[]
 
   @@index([destinationId])
   @@index([archived])
 }
 
-model Hotel {
-  id            String   @id @default(uuid())
-  destinationId String
-  name          String
-  category      String
-  description   String   @db.Text
-  images        String[]
+/**
+ * The schedule inside a reusable day — the library twin of PackageDayEvent.
+ *
+ * Same shape, including one level of sub-events, so a copy into a package is a field-for-field
+ * translation with nothing lost.
+ */
+model DayTemplateEvent {
+  id            String  @id @default(uuid())
+  dayTemplateId String
+  parentEventId String?
+  // Phase 5: which library activity this event is. The title and description stay copied — locked
+  // rule 2 — so an event already built keeps reading the way its author wrote it; the reference is
+  // what makes the same activity countable and priceable across every template that uses it.
+  activityId    String?
+
+  sortOrder   Int
+  title       String
+  description String?      @db.Text
+  type        DayEventType @default(ACTIVITY)
+
+  // Minutes from midnight, not a timestamp — a template has no dates.
+  startMinute     Int?
+  durationMinutes Int?
+
+  mealsIncluded MealType[]
+  availability  String?
+
+  transferMode     String?
+  luggageAllowance String?
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  dayTemplate DayTemplate        @relation(fields: [dayTemplateId], references: [id], onDelete: Restrict)
+  parentEvent DayTemplateEvent?  @relation("TemplateSubEvents", fields: [parentEventId], references: [id], onDelete: Restrict)
+  subEvents   DayTemplateEvent[] @relation("TemplateSubEvents")
+  activity    Activity?          @relation(fields: [activityId], references: [id], onDelete: Restrict)
+
+  @@index([dayTemplateId])
+  @@index([parentEventId])
+  @@index([activityId])
+  @@index([archived])
+}
+
+/**
+ * The intern-maintained hotel library.
+ *
+ * Every field a PackageHotel can hold lives here too, on purpose. This is the SOURCE that gets
+ * copied into a package (locked rule 2), so anything missing here is something an admin has to
+ * retype for every package the hotel appears in — which is exactly what a library exists to
+ * prevent. Parity is the contract: add a field to PackageHotel and it belongs here as well.
+ */
+model Hotel {
+  id            String   @id @default(uuid())
+  destinationId String
+  // Lower-cased haystack maintained on write; backs the trigram index the hotel picker searches.
+  searchText    String   @default("")
+  name          String
+  category      String
+  description   String   @db.Text
+  images        String[]
+
+  address       String? @db.Text
+  coverImageUrl String?
+
+  // Our own rating out of 5, distinct from the Google numbers below, which are someone else's
+  // measurement and are shown as such.
+  starRating        Int?
+  mapLink           String?
+  googleRating      Decimal? @db.Decimal(2, 1)
+  googleRatingCount Int?
+
+  // Times of day in minutes from midnight. The DATE a guest checks in comes from the trip, never
+  // from here — see PackageHotel for the same reasoning.
+  checkInMinute  Int?
+  checkOutMinute Int?
+
+  // Defaults offered when this hotel is put into a package. The package keeps its own copy, so
+  // changing these later never edits a package that has already been built.
+  roomType   String?
+  mealPlan   String?
+  // Null means "not stated", which is different from "non-refundable".
+  refundable Boolean?
+
+  servicesOffered String? @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  destination Destination   @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  // Phase 5: the same property is bought from several suppliers, each on its own terms, each with
+  // its own rate card. See HotelVendor for why those terms cannot live on this row.
+  vendors     HotelVendor[]
+  rates       HotelRate[]
 
   @@index([destinationId])
   @@index([archived])
+  // Declared here, not only in raw SQL, so Prisma stops planning a DROP for an index it
+  // cannot see. A trigram index created outside the schema is invisible to drift detection
+  // and gets removed by the next unrelated migration.
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "Hotel_searchText_trgm")
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +609,10 @@ model Package {
   // not about the country.
   faqs String? @db.Text
 
+  // Phase 4: the cancellation policy is maintained once as tiers and referenced here, so "what
+  // would this cost to cancel today" becomes a calculation rather than a paragraph someone reads.
+  cancellationPolicyId String?
+
   // What insurance the package INCLUDES, in prose — "overseas medical to USD 100,000". The actual
   // policy number a traveller is covered by lives on the quote, because it is issued per booking.
   insuranceDetails String? @db.Text
@@ -318,13 +624,16 @@ model Package {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  destination      Destination        @relation(fields: [destinationId], references: [id], onDelete: Restrict)
-  packageDays      PackageDay[]
+  destination        Destination         @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  cancellationPolicy CancellationPolicy? @relation(fields: [cancellationPolicyId], references: [id], onDelete: Restrict)
+  packageDays        PackageDay[]
   packageHotels    PackageHotel[]
   packageTransport PackageTransport[]
+  holidayTypes     HolidayTypeOnPackage[]
   quotes           Quote[]
 
   @@index([destinationId])
+  @@index([cancellationPolicyId])
   @@index([archived])
 }
 
@@ -380,6 +689,11 @@ model PackageDayEvent {
   id            String  @id @default(uuid())
   packageDayId  String
   parentEventId String?
+  // Deliberately a plain column and NOT a foreign key. A package day is a frozen copy (locked rule
+  // 2); a real relation here would let archiving an activity be refused because a package once
+  // included it, which is exactly the coupling copy-on-select exists to avoid. It is a breadcrumb
+  // for reporting — "how often did we sell this" — not a live link.
+  sourceActivityId String?
 
   sortOrder   Int
   title       String
@@ -577,6 +891,7 @@ model Quote {
   travellers QuoteTraveller[]
   transport  QuoteTransport[]
   insurance  QuoteInsurance[]
+  snapshot   QuoteSnapshot?
 
   @@index([packageId])
   @@index([partnerId])
@@ -670,6 +985,10 @@ model QuoteInsurance {
   id      String @id @default(uuid())
   quoteId String
 
+  // Which catalogue plan this was sold from. Nullable because a partner may record a policy the
+  // traveller arranged themselves, which belongs to no plan.
+  insurancePlanId String?
+
   provider     String
   policyNumber String?
 
@@ -688,9 +1007,11 @@ model QuoteInsurance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  quote         Quote          @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  insurancePlan InsurancePlan? @relation(fields: [insurancePlanId], references: [id], onDelete: Restrict)
 
   @@index([quoteId])
+  @@index([insurancePlanId])
   @@index([archived])
 }
 
@@ -733,63 +1054,531 @@ model Payment {
   @@index([archived])
 }
 
+
+
 // ---------------------------------------------------------------------------
-// Visa services
+// Suppliers and rates (Phase 5)
+//
+// Until now a hotel carried no price at all — the number lived inside a package, typed by hand, with
+// no record of who quoted it, when it was valid, or what currency it was in. Maintaining a hotel
+// centrally therefore bought nothing, which is the concrete reason the Library felt useless.
+//
+// The shape here follows how the trade actually contracts: one hotel is bought from SEVERAL
+// suppliers, each with its own contract period, allocation, cancellation terms and currency, and
+// each of those carries a table of rates by season, room type, meal plan and occupancy.
+//
+// None of this changes an issued quote. Phase 1 froze the itinerary and the price at quote
+// generation, so a rate loaded today is a rate for the NEXT quote.
 // ---------------------------------------------------------------------------
 
-model VisaCountry {
+/**
+ * Someone the business buys from.
+ *
+ * One row per supplier, not one per (supplier, hotel) — the contact details, payment terms and tax
+ * numbers belong to the company. What varies per hotel lives on HotelVendor.
+ */
+model Vendor {
   id   String @id @default(uuid())
   name String @unique
+  slug String @unique
 
-  // "UAE" next to "United Arab Emirates" — cards are narrow and the full name wraps badly.
-  shortName String?
+  types VendorType[]
 
-  // Remote URLs (Cloudinary/S3), NOT uploads. Uploaded files live on the container's ephemeral
-  // disk and are destroyed on every deploy — acceptable for a payment proof that has already been
-  // reviewed, fatal for marketing imagery that must survive. A URL also costs no upload
-  // infrastructure and is served from a CDN.
-  coverImageUrl String?
-  flagImageUrl  String?
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String? @db.Text
+  website       String?
 
-  // Markdown, same convention as Destination.aboutDestination — the intern maintains these as
-  // prose, not as structured rows, because they are read top to bottom and never queried.
-  //
-  // Country-level rather than product-level on purpose: what you need on ARRIVAL is a fact about
-  // the border, identical whether the traveller came in on an eVisa or a sticker visa. Putting it
-  // on the product would mean maintaining the same paragraph once per visa option.
-  aboutCountry String? @db.Text
-  arrivalInfo  String? @db.Text
+  countryId String?
 
-  // Wholesale per-passenger visa fee the admin sets. Frozen into VisaRequest.baseFeeAtRequest
-  // at the moment a request is created (copy-on-select, rule 2, applied a fourth time) — an
-  // admin repricing a country must never move an existing request's numbers.
-  baseFee Decimal @db.Decimal(12, 2) @default(0)
+  gstNumber String?
+  panNumber String?
+
+  // "30 days from invoice". Free text because every supplier words it differently and nothing
+  // downstream calculates on it yet.
+  paymentTerms String?
+  creditDays   Int?
+
+  // The currency this supplier normally contracts in. A default for new rate cards, not a
+  // constraint — the same supplier may quote a beach property in USD and a city one in local money.
+  defaultCurrencyCode String?
+
+  notes String? @db.Text
+
+  searchText String @default("")
 
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  products     VisaProduct[]
-  visaRequests VisaRequest[]
+  country         Country?      @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  defaultCurrency Currency?     @relation(fields: [defaultCurrencyCode], references: [code], onDelete: Restrict)
+  hotelContracts  HotelVendor[]
+  hotelRates      HotelRate[]
+  activityRates   ActivityRate[]
 
   @@index([archived])
+  @@index([countryId])
+  @@index([defaultCurrencyCode])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "Vendor_searchText_trgm")
 }
+
+/**
+ * One supplier's contract for one hotel.
+ *
+ * This is the row that makes "a hotel belongs to several vendors" true rather than aspirational.
+ * Allocation, release period, contract dates and cancellation terms all differ per supplier for the
+ * SAME property, and flattening them onto the hotel would mean picking one supplier's terms and
+ * quietly applying them to everyone.
+ */
+model HotelVendor {
+  id       String @id @default(uuid())
+  hotelId  String
+  vendorId String
+
+  // The supplier's own reference for the contract. Part of the unique key because a supplier may
+  // hold two contracts on one property — a seasonal allotment and an ad-hoc one.
+  contractRef String @default("")
+
+  contractFrom DateTime? @db.Date
+  contractTo   DateTime? @db.Date
+
+  // Rooms held for us, and how many days before arrival unsold ones go back. Both are operational
+  // facts that decide whether a booking can be confirmed instantly or has to be requested.
+  allocationRooms Int?
+  releaseDays     Int?
+
+  cancellationPolicyId String?
+
+  // Which supplier to quote from when several can supply the same room. A preference, not a rule —
+  // the rate resolver still prefers whatever is actually cheaper on the dates asked for.
+  isPreferred Boolean @default(false)
+
+  notes String? @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hotel              Hotel               @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  vendor             Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  cancellationPolicy CancellationPolicy? @relation(fields: [cancellationPolicyId], references: [id], onDelete: Restrict)
+  rates              HotelRate[]
+
+  @@unique([hotelId, vendorId, contractRef])
+  @@index([hotelId])
+  @@index([vendorId])
+  @@index([archived])
+  @@index([cancellationPolicyId])
+}
+
+/**
+ * One line of a hotel rate card.
+ *
+ * A rate is only a number in the company of everything else on this row: which dates it is valid
+ * for, what it is quoted per, which room and meal plan, which occupancy, and in what currency. Every
+ * one of those has been the cause of a mispriced package somewhere.
+ *
+ * Overlapping validity ranges are permitted by the schema and resolved by hotelRateService, which
+ * prefers the NARROWER range — a special rate loaded for one week must beat the season rate it sits
+ * inside, and that is the whole reason someone loads it.
+ */
+model HotelRate {
+  id            String  @id @default(uuid())
+  hotelId       String
+  // Which contract this rate came from. Nullable so a rate can be recorded before the contract is
+  // captured, which is what always happens when someone is quoting against an emailed rate sheet.
+  hotelVendorId String?
+  vendorId      String?
+
+  roomType  String
+  mealPlan  String
+  occupancy Occupancy @default(DOUBLE)
+
+  // Inclusive on both ends: a rate valid "1 to 30 April" covers the 30th. Stated because half-open
+  // ranges elsewhere in this schema make the other reading plausible.
+  validFrom DateTime @db.Date
+  validTo   DateTime @db.Date
+
+  basis        RateBasis @default(PER_ROOM_PER_NIGHT)
+  amount       Decimal   @db.Decimal(12, 2)
+  currencyCode String
+
+  // Tax quoted separately by most suppliers, so it is stored separately rather than folded into the
+  // amount where nobody could tell it apart afterwards.
+  taxPercent Decimal? @db.Decimal(5, 2)
+
+  minNights Int?
+  maxNights Int?
+
+  // Dates inside the validity range where this rate does NOT apply — a peak weekend carved out of a
+  // season rate. Stored as dates rather than prose so the resolver can honour them.
+  blackoutDates DateTime[] @db.Date
+
+  // Off means loaded but not yet usable for quoting. Rates arrive as a spreadsheet and are checked
+  // before anyone sells against them.
+  isPublished Boolean @default(false)
+
+  notes String? @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hotel       Hotel        @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  hotelVendor HotelVendor? @relation(fields: [hotelVendorId], references: [id], onDelete: Restrict)
+  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  currency    Currency     @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  @@index([hotelId, validFrom, validTo])
+  @@index([hotelVendorId])
+  @@index([vendorId])
+  @@index([currencyCode])
+  @@index([archived])
+  @@index([isPublished])
+}
+
+/**
+ * A thing a traveller does, maintained once.
+ *
+ * Day templates and package days currently hold activities as free-text event titles, so the same
+ * Bali swing is described differently in every itinerary and cannot be priced, filtered or reported
+ * on. An Activity is the row that fixes that; the events keep their copied text (locked rule 2) and
+ * gain a reference back to it.
+ */
+model Activity {
+  id            String @id @default(uuid())
+  destinationId String
+  name          String
+  slug          String @unique
+
+  description String? @db.Text
+  // Free text rather than an enum: matched against the ACTIVITY_CATEGORY vocabulary in the library,
+  // which an admin extends without a deploy.
+  category    String?
+
+  durationMinutes Int?
+  // Where a template puts it by default. Minutes from midnight, like every other time in this
+  // schema, because a template has no date to hang a timestamp off.
+  suggestedStartMinute Int?
+
+  meetingPoint String? @db.Text
+  inclusions   String? @db.Text
+  exclusions   String? @db.Text
+  notes        String? @db.Text
+
+  coverImageUrl String?
+  images        String[]
+
+  minAgeYears Int?
+  maxPax      Int?
+
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  destination       Destination        @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  rates             ActivityRate[]
+  dayTemplateEvents DayTemplateEvent[]
+
+  @@index([destinationId])
+  @@index([archived])
+  @@index([category])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "Activity_searchText_trgm")
+}
+
+/**
+ * One price for one activity.
+ *
+ * Several per activity, for the same reason hotels have rate cards: an adult ticket, a child ticket,
+ * a private transfer and a seat-in-coach are four different numbers for the same experience, and
+ * each is valid for its own season.
+ */
+model ActivityRate {
+  id         String  @id @default(uuid())
+  activityId String
+  vendorId   String?
+
+  paxType  PaxType       @default(ADULT)
+  transfer TransferBasis @default(SIC)
+
+  validFrom DateTime @db.Date
+  validTo   DateTime @db.Date
+
+  amount       Decimal @db.Decimal(12, 2)
+  currencyCode String
+
+  // A GROUP rate covers everyone between these two counts for one price.
+  minPax Int?
+  maxPax Int?
+
+  isPublished Boolean @default(false)
+  notes       String? @db.Text
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activity Activity  @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  vendor   Vendor?   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  currency Currency  @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  @@index([activityId, validFrom, validTo])
+  @@index([vendorId])
+  @@index([currencyCode])
+  @@index([archived])
+  @@index([isPublished])
+}
+
+// ---------------------------------------------------------------------------
+// Reusable content (Phase 4)
+//
+// Everything here exists because the same paragraph was being retyped. A visa checklist asked for
+// "Bank Statement" in one product and "6-month bank statements" in another; a cancellation policy
+// lived as prose inside each package; the same FAQ was pasted onto every destination.
+//
+// The rule that makes this safe is Phase 1's: a quote snapshots at generation. Editing a note or a
+// policy therefore changes what FUTURE quotes say, never what an issued one said.
+// ---------------------------------------------------------------------------
+
+/**
+ * A kind of document, named once.
+ *
+ * `VisaRequiredDocument.documentName` was free text, so the "documents required" filter could never
+ * work on it and no two products agreed on a name. A document type is the row that fixes that: the
+ * checklist points at it, and the wording changes in one place.
+ */
+model DocumentType {
+  id   String @id @default(uuid())
+  name String @unique
+  slug String @unique
+
+  category VisaDocumentCategory @default(OTHER)
+  subject  DocumentSubject      @default(TRAVELLER)
+
+  description String? @db.Text
+  // What a good one looks like. A specimen removes most of the back-and-forth on a rejected upload.
+  sampleImageUrl String?
+  // "Valid for at least 6 months beyond the travel date." Guidance, not validation.
+  requirementNotes String? @db.Text
+
+  // The usual answer, which a product may still override — a passport is mandatory almost
+  // everywhere, an old visa copy almost nowhere.
+  isMandatoryByDefault Boolean @default(true)
+
+  sortOrder  Int    @default(0)
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visaRequirements VisaRequiredDocument[]
+  requestSnapshots VisaRequestRequiredDoc[]
+  uploads          VisaDocumentUpload[]
+
+  @@index([archived])
+  @@index([category])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "DocumentType_searchText_trgm")
+}
+
+/**
+ * A question and its answer, written once and attached wherever it applies.
+ *
+ * Attached through EntityLink rather than a foreign key per owner: the same question belongs on a
+ * country, a destination, a package and a visa product, and a column per owner would mean altering
+ * this table every time something new wants FAQs.
+ */
+model FaqItem {
+  id       String @id @default(uuid())
+  question String
+  answer   String @db.Text
+
+  // Free text rather than an enum: these are editorial groupings ("Before you fly", "Payments")
+  // that the people writing FAQs invent, and an enum would make them wait for a deploy.
+  category String?
+
+  sortOrder  Int    @default(0)
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archived])
+  @@index([category])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "FaqItem_searchText_trgm")
+}
+
+/**
+ * A named block of prose — terms, scope of services, general notes.
+ *
+ * This is the former `ContentBlock`, extended rather than replaced. The physical table keeps its old
+ * name (see @@map) because renaming it in the same deploy that adds its replacement is exactly the
+ * kind of change that 500s a container mid-rollout. The rename belongs to a contract step.
+ *
+ * `key` is what a document looks a block up by, so it is stable and never edited; the title and body
+ * are what an admin rewrites without a deploy.
+ */
+model NoteBlock {
+  id   String @id @default(uuid())
+  // Renamed from `name` in code only — same column, so no data moves.
+  key  String @unique @map("name")
+  type NoteBlockType @default(OTHER)
+
+  title String
+  body  String @db.Text
+
+  // True for the company-wide blocks printed at the foot of every voucher. False for a block that
+  // only applies where it has been attached, which is what EntityLink records.
+  isGlobal Boolean @default(true)
+
+  sortOrder  Int    @default(0)
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archived])
+  @@index([type])
+  @@map("ContentBlock")
+}
+
+/**
+ * A cancellation policy, as tiers rather than a paragraph.
+ *
+ * Written as prose it can only be printed. As tiers it can also be applied: "what would this cost to
+ * cancel today" is a calculation the system can do, which is the question a partner actually asks.
+ */
+model CancellationPolicy {
+  id   String @id @default(uuid())
+  name String @unique
+  slug String @unique
+
+  description String? @db.Text
+  // Prose to print alongside the table, for the wording that tiers cannot express.
+  notes       String? @db.Text
+
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tiers          CancellationTier[]
+  packages       Package[]
+  hotelContracts HotelVendor[]
+
+  @@index([archived])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "CancellationPolicy_searchText_trgm")
+}
+
+/**
+ * One band of a cancellation policy: "30 days or more before travel, 25%".
+ *
+ * Bands are half-open on `daysBeforeTravelMin` and expressed as a range so a gap or an overlap is
+ * visible in the data rather than hidden in prose. A tier with no maximum is the outermost band.
+ */
+model CancellationTier {
+  id       String @id @default(uuid())
+  policyId String
+
+  // Inclusive lower bound in days before departure. 0 means "on the day or after".
+  daysBeforeTravelMin Int
+  // Exclusive upper bound, null for the outermost band.
+  daysBeforeTravelMax Int?
+
+  chargeType  CancellationChargeType @default(PERCENT_OF_TOTAL)
+  // Percent when PERCENT_OF_TOTAL, an amount when FIXED_AMOUNT, a count when NIGHTS, ignored for
+  // NONE. Decimal because a half-percent band is a real thing.
+  chargeValue Decimal @default(0) @db.Decimal(12, 2)
+
+  // Only meaningful for FIXED_AMOUNT. Present because a fixed charge without a currency is not a
+  // number anyone can act on, and this system must not assume INR.
+  currencyCode String?
+
+  sortOrder Int @default(0)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  policy   CancellationPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  currency Currency?          @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  @@index([policyId])
+  @@index([archived])
+  @@index([currencyCode])
+}
+
+/**
+ * An insurance product that can be sold with a trip.
+ *
+ * `QuoteInsurance` records the policy a specific traveller was actually issued — a number, a
+ * document, real dates. This is the catalogue entry it was sold from.
+ */
+model InsurancePlan {
+  id       String @id @default(uuid())
+  name     String
+  slug     String @unique
+  provider String
+
+  coverageSummary String? @db.Text
+  inclusions      String? @db.Text
+  exclusions      String? @db.Text
+  brochureUrl     String?
+
+  coverageAmount Decimal? @db.Decimal(12, 2)
+  premiumAdult   Decimal? @db.Decimal(12, 2)
+  premiumChild   Decimal? @db.Decimal(12, 2)
+  // One currency for every amount on the plan. A plan priced in USD with cover quoted in INR is a
+  // data-entry mistake, not a case worth modelling.
+  currencyCode   String?
+
+  // Eligibility. Age bands are where insurance claims are actually refused, so they are columns
+  // rather than a line in the summary.
+  minAgeYears     Int?
+  maxAgeYears     Int?
+  maxTripDays     Int?
+
+  sortOrder  Int    @default(0)
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  currency       Currency?        @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+  quoteInsurance QuoteInsurance[]
+
+  @@index([archived])
+  @@index([currencyCode])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "InsurancePlan_searchText_trgm")
+}
+
+// ---------------------------------------------------------------------------
+// Visa services
+// ---------------------------------------------------------------------------
 
 /**
  * One sellable visa option for a country — "Tourist eVisa (30 days)", "Visa on Arrival".
  *
  * A country is not a product: Thailand offers Visa on Arrival AND an eVisa, with different
- * processing times, documents and fees, and VisaCountry.baseFee can only hold one of them. Every
+ * processing times, documents and fees, and Country.baseFee can only hold one of them. Every
  * filter the marketplace needs (category, speed, documents) is a property of the option, not of
  * the country, so the options have to be rows of their own.
  *
- * VisaCountry.baseFee stays as the country-level default and is what pre-migration requests were
- * priced from; new requests snapshot VisaProduct.baseFee instead.
+ * Country.baseFee stays as the country-level default and is what pre-migration requests were
+ * priced from; new requests snapshot VisaProduct.adultFee/childFee instead.
  */
 model VisaProduct {
-  id            String @id @default(uuid())
-  visaCountryId String
-  name          String
+  id        String @id @default(uuid())
+  countryId String
+  name      String
 
   category VisaCategory
 
@@ -833,12 +1622,12 @@ model VisaProduct {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visaCountry       VisaCountry            @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+  country           Country                @relation(fields: [countryId], references: [id], onDelete: Restrict)
   requiredDocuments VisaRequiredDocument[]
   processingSteps   VisaProcessingStep[]
   visaRequests      VisaRequest[]
 
-  @@index([visaCountryId])
+  @@index([countryId])
   @@index([archived])
   @@index([category])
   @@index([processingDaysMax])
@@ -884,6 +1673,10 @@ model VisaProcessingStep {
 model VisaRequiredDocument {
   id            String  @id @default(uuid())
   visaProductId String
+  // Phase 4: the checklist now points at a named document type. `documentName` stays as the
+  // authored label — a product may legitimately say "Passport (first and last page)" where the type
+  // is simply "Passport" — and as the fallback for rows written before types existed.
+  documentTypeId String?
   documentName  String
   isMandatory   Boolean @default(true)
 
@@ -895,17 +1688,19 @@ model VisaRequiredDocument {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visaProduct VisaProduct @relation(fields: [visaProductId], references: [id], onDelete: Restrict)
+  visaProduct  VisaProduct   @relation(fields: [visaProductId], references: [id], onDelete: Restrict)
+  documentType DocumentType? @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
 
   @@index([visaProductId])
+  @@index([documentTypeId])
   @@index([archived])
   @@index([category])
 }
 
 model VisaRequest {
-  id            String @id @default(uuid())
-  partnerId     String
-  visaCountryId String
+  id        String @id @default(uuid())
+  partnerId String
+  countryId String
 
   // Nullable only because requests created before visa products existed have no product to point
   // at. Every new request sets it — visaRequestService requires a product on create — and
@@ -919,7 +1714,7 @@ model VisaRequest {
 
   // The country's baseFee FROZEN at the instant this request was created — copy-on-select
   // (rule 2) applied to visa pricing, the same principle as Quote.rawPriceAtQuote. All
-  // selling-price maths uses THIS column, never the live VisaCountry.baseFee, so an admin
+  // selling-price maths uses THIS column, never the live Country.baseFee, so an admin
   // repricing a country can never move the numbers on a request already in flight.
   // passengerCount is NOT stored separately: passengers can only be edited while
   // APPLICATION_SUBMITTED (see visaRequestService.EDITABLE_STATUSES), so the live count of
@@ -950,14 +1745,14 @@ model VisaRequest {
   updatedAt DateTime @updatedAt
 
   partner             User                     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  visaCountry         VisaCountry              @relation(fields: [visaCountryId], references: [id], onDelete: Restrict)
+  country             Country                  @relation(fields: [countryId], references: [id], onDelete: Restrict)
   visaProduct         VisaProduct?             @relation(fields: [visaProductId], references: [id], onDelete: Restrict)
   passengers          VisaPassenger[]
   payments            Payment[]
   requiredDocSnapshot VisaRequestRequiredDoc[]
 
   @@index([partnerId])
-  @@index([visaCountryId])
+  @@index([countryId])
   @@index([visaProductId])
   @@index([status])
   @@index([archived])
@@ -972,6 +1767,11 @@ model VisaRequest {
 model VisaRequestRequiredDoc {
   id            String  @id @default(uuid())
   visaRequestId String
+  // Which library document type this line came from. The NAME stays the frozen copy (locked rule
+  // 2) — it is what the partner was told to produce and must not change if the library is reworded.
+  // The reference is what lets the upload screen show the specimen and the requirement notes, and
+  // lets "how many passport scans are outstanding" be a query rather than a string comparison.
+  documentTypeId String?
   documentName  String
   isMandatory   Boolean @default(true)
 
@@ -979,9 +1779,11 @@ model VisaRequestRequiredDoc {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visaRequest VisaRequest @relation(fields: [visaRequestId], references: [id], onDelete: Restrict)
+  visaRequest  VisaRequest   @relation(fields: [visaRequestId], references: [id], onDelete: Restrict)
+  documentType DocumentType? @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
 
   @@index([visaRequestId])
+  @@index([documentTypeId])
   @@index([archived])
 }
 
@@ -1020,6 +1822,10 @@ model VisaPassenger {
 model VisaDocumentUpload {
   id              String @id @default(uuid())
   visaPassengerId String
+  // What KIND of document this file is. Until now an upload was tied to its checklist line only by
+  // comparing documentName strings, so a reworded checklist orphaned every file already uploaded
+  // against it — the same name-matching fragility Phase 3 removed between destinations and visas.
+  documentTypeId  String?
   documentName    String
   filePath        String
 
@@ -1028,8 +1834,10 @@ model VisaDocumentUpload {
   updatedAt DateTime @updatedAt
 
   visaPassenger VisaPassenger @relation(fields: [visaPassengerId], references: [id], onDelete: Restrict)
+  documentType  DocumentType? @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
 
   @@index([visaPassengerId])
+  @@index([documentTypeId])
   @@index([archived])
 }
 
@@ -1055,25 +1863,6 @@ model Notification {
   @@index([archived])
 }
 
-/**
- * Company-wide prose printed on every voucher — terms, scope of services, cancellation policy,
- * amendment policy.
- *
- * Name-keyed like EmailTemplate, and for the same reason: the app looks these up by a stable key
- * while an admin edits the wording, so copy changes never need a deploy.
- */
-model ContentBlock {
-  id    String @id @default(uuid())
-  name  String @unique
-  title String
-  body  String @db.Text
-
-  archived  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([archived])
-}
 
 /**
  * Small key/value store for operational numbers an admin must be able to change without a deploy —
@@ -1099,5 +1888,377 @@ model EmailTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([archived])
+}
+
+/**
+ * "Type of holidays" — beach, honeymoon, adventure, pilgrimage, family.
+ *
+ * A table rather than the free-text `Package.tags` array it replaces for this purpose: tags cannot
+ * be renamed centrally, cannot carry an icon or an ordering, and accumulate near-duplicates
+ * ("honeymoon", "Honeymoon", "honey moon") that then fail to match a filter. `tags` stays for
+ * genuinely ad-hoc labelling.
+ *
+ * Attached to both packages and destinations, because a partner browses both ways: "show me
+ * honeymoon packages" and "which destinations suit a honeymoon".
+ */
+model HolidayType {
+  id   String @id @default(uuid())
+  name String @unique
+  slug String @unique
+
+  description String? @db.Text
+  // Icon name from the frontend's own set, not an image URL — these render inline in filter chips.
+  icon        String?
+  imageUrl    String?
+
+  // Display order in pickers and filter bars; alphabetical would bury the common ones.
+  sortOrder Int @default(0)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  packages     HolidayTypeOnPackage[]
+  destinations HolidayTypeOnDestination[]
+
+  @@index([archived])
+}
+
+// Explicit join tables rather than implicit many-to-many: they carry their own timestamps, and a
+// named table is something migrations and queries can talk about.
+model HolidayTypeOnPackage {
+  packageId     String
+  holidayTypeId String
+  createdAt     DateTime @default(now())
+
+  package     Package     @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  holidayType HolidayType @relation(fields: [holidayTypeId], references: [id], onDelete: Restrict)
+
+  @@id([packageId, holidayTypeId])
+  @@index([holidayTypeId])
+}
+
+model HolidayTypeOnDestination {
+  destinationId String
+  holidayTypeId String
+  createdAt     DateTime @default(now())
+
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  holidayType HolidayType @relation(fields: [holidayTypeId], references: [id], onDelete: Restrict)
+
+  @@id([destinationId, holidayTypeId])
+  @@index([holidayTypeId])
+}
+
+// ---------------------------------------------------------------------------
+// Media
+// ---------------------------------------------------------------------------
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+  // Cloudinary's name for "anything else" — PDFs, docs. Used by the private-document pass.
+  RAW
+}
+
+enum MediaVisibility {
+  // Delivered from a plain https URL. Correct for marketing imagery, which is meant to be seen.
+  PUBLIC
+  // Cloudinary "authenticated" delivery: the URL alone opens nothing, a short-lived signed URL
+  // has to be minted per request. Required for passports, bank statements and payment proofs.
+  AUTHENTICATED
+}
+
+/**
+ * One file stored in Cloudinary.
+ *
+ * Exists because a URL is not enough to manage a file. Deleting or replacing one needs Cloudinary's
+ * `public_id`, and that cannot be parsed back out of a delivery URL with any confidence — versions,
+ * transformations and nested folders all end up in the path. So it is recorded at upload time.
+ *
+ * One central table rather than a publicId column beside each of the dozen existing URL columns:
+ * delete lives in one place, orphaned files can be found, and adding the next media field does not
+ * mean another migration.
+ *
+ * The owner is polymorphic and deliberately NOT a foreign key. An asset is uploaded BEFORE the row
+ * it belongs to exists (you pick a cover image while creating the country), so a FK would be
+ * unsatisfiable at insert time; and it can point at any of a dozen tables, which no single FK can
+ * express. The trade-off is that nothing at the database level stops a stale ownerId — the media
+ * list is the tool for finding those.
+ */
+model MediaAsset {
+  id String @id @default(uuid())
+
+  // Cloudinary's identifier. Unique because it IS the file: two rows pointing at one public_id
+  // would let one delete silently break the other.
+  publicId String @unique
+
+  // Delivery URL. For AUTHENTICATED assets this is not directly usable — it is kept so the asset
+  // can be identified in a listing, and a signed URL is minted per request instead.
+  url String
+
+  kind       MediaKind       @default(IMAGE)
+  visibility MediaVisibility @default(PUBLIC)
+  folder     String
+
+  format           String?
+  bytes            Int?
+  width            Int?
+  height           Int?
+  originalFilename String?
+
+  // What this file is for, e.g. "visaCountry" + "cover". Purpose is what the upload signature was
+  // issued against, so it also records which folder rule applied.
+  purpose   String
+  ownerType String?
+  ownerId   String?
+
+  uploadedById String?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([purpose])
+  @@index([ownerType, ownerId])
+  @@index([archived])
+}
+
+/**
+ * The itinerary a quote actually promised, frozen at the moment the quote was generated.
+ *
+ * WHY THIS EXISTS
+ * A quote used to freeze its price and nothing else, while the voucher read the package LIVE. An
+ * admin editing a package's hotels or day plan therefore rewrote vouchers that customers were
+ * already holding, silently and with no record. Only the number was safe; the promise was not.
+ *
+ * This row is that promise. It is written once, inside the same transaction that creates the quote,
+ * and never updated. Everything customer-facing — voucher, invoice, PDF — reads it instead of the
+ * live library.
+ *
+ * WHY JSONB RATHER THAN SHADOW TABLES
+ * A relational snapshot would need a mirror of every entity a quote can touch, kept in step with the
+ * live schema forever. A document is one row, is exact, and never needs migrating: an eighteen-
+ * month-old voucher still renders from the shape the system had when it was issued. It is never
+ * queried for analytics — reporting reads the live entities and the quote's own numeric columns,
+ * which stay relational.
+ */
+model QuoteSnapshot {
+  id      String @id @default(uuid())
+  quoteId String @unique
+
+  // Bumped whenever the document's shape changes. The renderer branches on this rather than
+  // guessing, so old snapshots keep working instead of erroring on a missing section.
+  schemaVersion Int      @default(1)
+  capturedAt    DateTime @default(now())
+
+  document Json
+
+  createdAt DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+}
+
+
+// ---------------------------------------------------------------------------
+// Library foundations (Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The vocabularies that are genuinely the same shape: a named option with no behaviour of its own.
+ *
+ * One table rather than eight near-identical ones. The dividing line against a master entity is
+ * BEHAVIOUR - an inclusion is a label, a hotel has coordinates, a vendor and a rate card. Anything
+ * with fields of its own gets a table of its own; a vocabulary that later grows real fields is
+ * promoted out of here, which is a migration rather than a redesign.
+ *
+ * A fully generic key-value store for ALL master data is the classic MDM mistake. This is
+ * deliberately not that - it covers vocabularies only.
+ */
+enum LookupType {
+  TRIP_TYPE
+  PACKAGE_CATEGORY
+  INCLUSION
+  EXCLUSION
+  AMENITY
+  ROOM_TYPE
+  MEAL_PLAN
+  ACTIVITY_CATEGORY
+}
+
+model LookupItem {
+  id   String     @id @default(uuid())
+  type LookupType
+
+  name        String
+  slug        String
+  description String? @db.Text
+  // An icon NAME from the frontend's own set, not a URL - these render inline in filter chips.
+  icon        String?
+  imageUrl    String?
+
+  // Display order in pickers. Alphabetical would bury the options people pick most.
+  sortOrder Int @default(0)
+
+  // Lower-cased haystack maintained on write. See utils/searchText.js for why this is a column
+  // rather than an expression index or a database trigger.
+  searchText String @default("")
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Unique per type, not globally: "Standard" is a legitimate room type AND package category.
+  @@unique([type, slug])
+  @@index([type, archived])
+  @@index([sortOrder])
+  // Declared here, not only in raw SQL, so Prisma stops planning a DROP for an index it
+  // cannot see. A trigram index created outside the schema is invisible to drift detection
+  // and gets removed by the next unrelated migration.
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "LookupItem_searchText_trgm")
+}
+
+/**
+ * ISO 4217 currencies.
+ *
+ * Exists because no commercial value in this system may assume INR. Every price is paired with a
+ * code from here, so adding a second selling currency becomes data entry rather than a migration.
+ *
+ * Exchange rates are deliberately absent for now: a rate needs a source, a timestamp and a policy
+ * about which rate applies to which transaction. Inventing that before it is needed would bake in
+ * the wrong answer.
+ */
+model Currency {
+  code   String @id // ISO 4217, e.g. INR, USD, AED
+  name   String
+  symbol String
+
+  // Most currencies use 2; JPY uses 0. Rounding a price at the wrong scale is a real money bug.
+  decimalDigits Int @default(2)
+
+  // Exactly one row should carry this. It is what reports total in and what a new price defaults to.
+  isBaseCurrency Boolean @default(false)
+
+  sortOrder Int     @default(0)
+  archived  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  countries         Country[]
+  cancellationTiers CancellationTier[]
+  insurancePlans    InsurancePlan[]
+  vendors           Vendor[]
+  hotelRates        HotelRate[]
+  activityRates     ActivityRate[]
+
+  @@index([archived])
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  ARCHIVE
+  RESTORE
+  DELETE
+}
+
+/**
+ * Who changed what, when, and from what to what.
+ *
+ * ERP-wide infrastructure, not a Library feature: `entityType` is a plain string so any module -
+ * quotes, payments, visa requests, future vendor contracts - records through the same table and the
+ * same service without this schema changing again.
+ *
+ * THREE THINGS THAT MAKE THIS AN AUDIT LOG RATHER THAN A CHANGE FEED
+ *
+ * 1. The actor is DENORMALISED. actorEmail and actorRole are copied at write time, never joined
+ *    from User. A trail that goes blank when an employee is archived is not a trail.
+ * 2. `before`/`after` hold ONLY the fields that changed, not whole rows. Small enough to keep
+ *    forever, and readable as a diff without tooling.
+ * 3. There is no update path and no `archived` column. Rows are written once. Soft-deleting an
+ *    audit log would defeat the point of having one.
+ */
+model AuditLog {
+  id String @id @default(uuid())
+
+  entityType String
+  entityId   String
+  action     AuditAction
+
+  // Queryable on its own: "who has ever changed a visa fee" should not require reading every
+  // JSON document in the table.
+  changedFields String[]
+
+  before Json?
+  after  Json?
+
+  // Optional free text from the caller - "corrected after supplier email", "annual revision".
+  reason String? @db.Text
+
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+  // From req.ip, which is the real client only because index.js sets `trust proxy` behind the ALB.
+  actorIp    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ---------------------------------------------------------------------------
+// Generic linking
+// ---------------------------------------------------------------------------
+
+/**
+ * Attaches a reusable library item to any parent.
+ *
+ * FAQs, notes, documents and policies each attach to several parent types. A join table per
+ * (child x parent) pair would be roughly thirty tables; one fully-generic table gives up all
+ * referential integrity. This is the middle path, and the same compromise already accepted for
+ * MediaAsset - so the codebase has one convention rather than two.
+ *
+ * Both sides are strings because the CHILD is polymorphic too: a link may point at a FaqItem, a
+ * NoteBlock, a DocumentType or a LookupItem. The integrity cost is real and stated - nothing at the
+ * database level stops either id pointing at a row that no longer exists. Mitigated by archiving
+ * links in the same transaction as their parent, and by an integrity report that lists orphans.
+ *
+ * Ordinary many-to-many between two KNOWN tables still uses a normal join table with two real
+ * foreign keys. This is only for genuinely many-parented content.
+ */
+model EntityLink {
+  id String @id @default(uuid())
+
+  // What is being attached.
+  itemType String
+  itemId   String
+
+  // What it is attached to.
+  ownerType String
+  ownerId   String
+
+  // Distinguishes several link sets on one owner: a package has inclusions AND exclusions, both
+  // pointing at LookupItem rows.
+  role String @default("default")
+
+  sortOrder Int @default(0)
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One link per item per owner per role. Stops the double-click duplicate.
+  @@unique([itemType, itemId, ownerType, ownerId, role])
+  @@index([ownerType, ownerId, role])
+  @@index([itemType, itemId])
   @@index([archived])
 }

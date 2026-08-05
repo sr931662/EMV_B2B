@@ -5,6 +5,7 @@ import {
   Badge,
   Card,
   EmptyState,
+  Pagination,
   PageHeader,
   Select,
   Skeleton,
@@ -13,6 +14,8 @@ import {
 import VisaSubNav from '../../components/admin/VisaSubNav';
 import { apiGet, ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../lib/format';
+
+const PAGE_SIZE = 50;
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -29,21 +32,29 @@ function AdminVisaRequestsPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('');
   const [requests, setRequests] = useState([]);
-  const [count, setCount] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [status]);
 
   useEffect(() => {
     let cancelled = false;
 
     setLoading(true);
     setError(null);
-    const qs = status ? `?status=${status}` : '';
-    apiGet(`/api/visa-requests${qs}`)
+
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
+    if (status) params.set('status', status);
+
+    apiGet(`/api/visa-requests?${params.toString()}`)
       .then((res) => {
         if (cancelled) return;
         setRequests(res.visaRequests);
-        setCount(res.count);
+        setTotal(res.total);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load visa requests.');
@@ -55,7 +66,7 @@ function AdminVisaRequestsPage() {
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, page]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -77,8 +88,8 @@ function AdminVisaRequestsPage() {
         />
         {!loading && (
           <p className="pb-2.5 text-[13px] text-neutral-500">
-            <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> request
-            {count === 1 ? '' : 's'}
+            <span className="font-semibold text-neutral-900 tabular-nums">{total}</span> request
+            {total === 1 ? '' : 's'}
           </p>
         )}
       </Card>
@@ -143,6 +154,7 @@ function AdminVisaRequestsPage() {
               ))}
             </Table.Body>
           </Table>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
         </Card>
       )}
     </div>

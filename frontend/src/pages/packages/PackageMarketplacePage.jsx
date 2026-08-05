@@ -6,12 +6,15 @@ import {
   EmptyState,
   Icon,
   Input,
+  Pagination,
   PageHeader,
   Select,
   Skeleton,
 } from '../../components/ui';
 import PackageCard from '../../components/packages/PackageCard';
 import { apiGet, ApiError } from '../../api/client';
+
+const PAGE_SIZE = 24; // a round number of grid cells at 4-up, 3-up and 2-up breakpoints alike
 
 const INITIAL_FILTERS = {
   destinationId: '',
@@ -23,7 +26,7 @@ const INITIAL_FILTERS = {
   search: '',
 };
 
-function buildQuery(filters) {
+function buildQuery(filters, page) {
   const params = new URLSearchParams();
   if (filters.destinationId) params.set('destinationId', filters.destinationId);
   if (filters.tag) params.set('tag', filters.tag);
@@ -32,8 +35,9 @@ function buildQuery(filters) {
   if (filters.minDays !== '') params.set('minDays', filters.minDays);
   if (filters.maxDays !== '') params.set('maxDays', filters.maxDays);
   if (filters.search.trim()) params.set('search', filters.search.trim());
-  const qs = params.toString();
-  return qs ? `?${qs}` : '';
+  params.set('limit', String(PAGE_SIZE));
+  params.set('offset', String((page - 1) * PAGE_SIZE));
+  return `?${params.toString()}`;
 }
 
 function PackageMarketplacePage() {
@@ -41,7 +45,8 @@ function PackageMarketplacePage() {
   const [allTags, setAllTags] = useState([]);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [packages, setPackages] = useState([]);
-  const [count, setCount] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -53,6 +58,12 @@ function PackageMarketplacePage() {
       });
   }, []);
 
+  // A filter change means the previous page number may no longer point at anything relevant —
+  // reset to the first page rather than re-fetching page 6 of a now-three-page result set.
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -60,11 +71,11 @@ function PackageMarketplacePage() {
       setLoading(true);
       setError(null);
 
-      apiGet(`/api/packages${buildQuery(filters)}`)
+      apiGet(`/api/packages${buildQuery(filters, page)}`)
         .then((res) => {
           if (cancelled) return;
           setPackages(res.packages);
-          setCount(res.count);
+          setTotal(res.total);
           setAllTags((prev) => {
             const union = new Set(prev);
             res.packages.forEach((p) => p.tags?.forEach((t) => union.add(t)));
@@ -83,7 +94,7 @@ function PackageMarketplacePage() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [filters]);
+  }, [filters, page]);
 
   const setField = (field) => (e) => setFilters((prev) => ({ ...prev, [field]: e.target.value }));
 
@@ -179,8 +190,8 @@ function PackageMarketplacePage() {
             'Searching…'
           ) : (
             <>
-              <span className="font-semibold text-neutral-900 tabular-nums">{count}</span>{' '}
-              package{count === 1 ? '' : 's'} found
+              <span className="font-semibold text-neutral-900 tabular-nums">{total}</span>{' '}
+              package{total === 1 ? '' : 's'} found
             </>
           )}
         </p>
@@ -211,11 +222,16 @@ function PackageMarketplacePage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {packages.map((pkg) => (
-            <PackageCard key={pkg.id} pkg={pkg} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {packages.map((pkg) => (
+              <PackageCard key={pkg.id} pkg={pkg} />
+            ))}
+          </div>
+          <Card bodyClassName="p-0">
+            <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
+          </Card>
+        </>
       )}
     </div>
   );

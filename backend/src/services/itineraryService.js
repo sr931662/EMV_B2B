@@ -123,19 +123,28 @@ function presentHotel(hotel) {
  *
  * Reuses the visa products already in the system rather than restating visa rules on the package:
  * one country's visa facts live in one place, and the itinerary links straight to the product
- * detail page for the rest. Matched on country NAME because destinations and visa countries are
- * separate libraries with no foreign key between them.
+ * detail page for the rest.
+ *
+ * Resolved through Destination.countryId, an explicit foreign key. This used to compare the two
+ * libraries' NAMES, which returned nothing the moment one said "UAE" and the other "United Arab
+ * Emirates" — a silently empty visa section with no error anywhere. The name fallback is kept only
+ * for destinations nobody has linked yet — which Phase 3's backfill made rare, not impossible.
  */
-async function findVisaInfo(destinationName) {
-  const country = await prisma.visaCountry.findFirst({
-    where: { name: { equals: destinationName, mode: 'insensitive' }, archived: false },
-    select: { id: true, name: true },
-  });
+async function findVisaInfo(destination) {
+  const country = destination.countryId
+    ? await prisma.country.findFirst({
+        where: { id: destination.countryId, archived: false },
+        select: { id: true, name: true },
+      })
+    : await prisma.country.findFirst({
+        where: { name: { equals: destination.name, mode: 'insensitive' }, archived: false },
+        select: { id: true, name: true },
+      });
 
   if (!country) return null;
 
   const products = await prisma.visaProduct.findMany({
-    where: { visaCountryId: country.id, archived: false },
+    where: { countryId: country.id, archived: false },
     select: {
       id: true,
       name: true,
@@ -156,7 +165,18 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
   const pkg = await prisma.package.findUnique({
     where: { id: packageId },
     include: {
-      destination: { select: { id: true, name: true, generalNotes: true, toursAndTransfersNotes: true } },
+      destination: {
+        select: {
+          id: true,
+          name: true,
+          shortName: true,
+          coverImageUrl: true,
+          flagImageUrl: true,
+          countryId: true,
+          generalNotes: true,
+          toursAndTransfersNotes: true,
+        },
+      },
       packageDays: {
         where: { archived: false },
         orderBy: { dayNumber: 'asc' },
@@ -228,7 +248,7 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
     // schema.prisma for why the actuals live on the quote instead.
     transport: pkg.packageTransport,
     days,
-    visa: await findVisaInfo(pkg.destination.name),
+    visa: await findVisaInfo(pkg.destination),
     destinationNotes: {
       general: pkg.destination.generalNotes,
       toursAndTransfers: pkg.destination.toursAndTransfersNotes,

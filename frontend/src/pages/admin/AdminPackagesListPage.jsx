@@ -7,6 +7,7 @@ import {
   Card,
   EmptyState,
   Icon,
+  Pagination,
   PageHeader,
   Skeleton,
   Switch,
@@ -16,10 +17,13 @@ import {
 import { apiGet, apiPost, apiDelete, ApiError } from '../../api/client';
 import { formatCurrency } from '../../lib/format';
 
+const PAGE_SIZE = 50;
+
 function AdminPackagesListPage() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [packages, setPackages] = useState([]);
-  const [count, setCount] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { showToast } = useToast();
@@ -27,19 +31,30 @@ function AdminPackagesListPage() {
   const load = () => {
     setLoading(true);
     setError(null);
-    return apiGet(`/api/packages?includeArchived=${includeArchived}`)
+
+    const params = new URLSearchParams({
+      includeArchived: String(includeArchived),
+      limit: String(PAGE_SIZE),
+      offset: String((page - 1) * PAGE_SIZE),
+    });
+
+    return apiGet(`/api/packages?${params.toString()}`)
       .then((res) => {
         setPackages(res.packages);
-        setCount(res.count);
+        setTotal(res.total);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load packages.'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [includeArchived]);
+
+  useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeArchived]);
+  }, [includeArchived, page]);
 
   const handleArchive = async (pkg) => {
     try {
@@ -87,8 +102,8 @@ function AdminPackagesListPage() {
             'Loading…'
           ) : (
             <>
-              <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> package
-              {count === 1 ? '' : 's'}
+              <span className="font-semibold text-neutral-900 tabular-nums">{total}</span> package
+              {total === 1 ? '' : 's'}
             </>
           )}
         </p>
@@ -172,6 +187,7 @@ function AdminPackagesListPage() {
               ))}
             </Table.Body>
           </Table>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
         </Card>
       )}
     </div>

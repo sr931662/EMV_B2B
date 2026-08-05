@@ -2,6 +2,7 @@ const { Prisma } = require('@prisma/client');
 
 const prisma = require('../utils/prisma');
 const ApiError = require('../utils/ApiError');
+const noteBlockService = require('./noteBlockService');
 
 /**
  * Assembles the post-payment trip voucher: everything printed on the page a customer receives once
@@ -15,15 +16,10 @@ const ApiError = require('../utils/ApiError');
  * never from the live package or the current tax rate.
  */
 
-// Company-wide blocks printed at the foot of every voucher. Looked up by these stable keys so an
-// admin can rewrite the wording without a deploy; a missing block is simply omitted.
-const TERMS_BLOCK_NAMES = [
-  'TERMS_AND_CONDITIONS',
-  'SCOPE_OF_SERVICES',
-  'HOTEL_AND_LAND_CANCELLATION_POLICY',
-  'AMENDMENT_OF_BOOKING_BY_GUEST',
-  'GENERAL_NOTES',
-];
+// Company-wide blocks printed at the foot of every voucher now live in noteBlockService, alongside
+// the check that reports which of them nobody has written yet. They used to be a list here, and a
+// missing block was omitted with no trace — which is why every voucher so far has printed without
+// terms and conditions and nothing said so.
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -124,6 +120,87 @@ function buildPayments(payments, quote) {
   };
 }
 
+/**
+ * Reads the itinerary out of the frozen snapshot.
+ *
+ * Nothing here touches the live package. That is the whole point: this is what the customer was
+ * told, and it must not move when someone edits the package afterwards.
+ */
+function fromSnapshot(snapshot, quote) {
+  const doc = snapshot.document;
+
+  return {
+    snapshotted: true,
+    capturedAt: snapshot.capturedAt,
+    schemaVersion: snapshot.schemaVersion,
+
+    countryName: doc.destination?.name ?? null,
+    packageTitle: doc.package?.title ?? null,
+    days: doc.package?.days ?? null,
+    totalNights: doc.package?.nights ?? null,
+    tripStart: doc.trip?.tripStart ?? null,
+    tripEnd: doc.trip?.tripEnd ?? null,
+    stays: doc.stays ?? [],
+    inclusions: doc.package?.inclusions ?? null,
+    exclusions: doc.package?.exclusions ?? null,
+    // The snapshot stores days with their resolved calendar dates nested under `calendar`; the
+    // voucher's shape has always had them spread onto the day itself.
+    dayWise: (doc.days ?? []).map((d) => ({
+      dayNumber: d.dayNumber,
+      title: d.title,
+      description: d.description,
+      brief: d.brief,
+      notes: d.notes,
+      inclusions: d.inclusions,
+      mealsIncluded: d.mealsIncluded ?? [],
+      events: d.events ?? [],
+      date: d.calendar?.date ?? null,
+      day: d.calendar?.day ?? null,
+    })),
+    visa: doc.visa ?? null,
+    // Present so a reader can tell the difference between "no live booking yet" and "the package
+    // never planned any travel".
+    transportPlan: doc.transportPlan ?? [],
+  };
+
+  // A quote created before this phase has no snapshot. `quote` is unused here but kept in the
+  // signature so both resolvers read the same way at the call site.
+}
+
+/**
+ * The pre-snapshot path, for quotes issued before this phase shipped.
+ *
+ * Reads the package live, which is the old behaviour and the old defect — editing the package still
+ * moves these vouchers. Kept rather than backfilled because inventing a snapshot from today's
+ * package would claim to record what a customer was told months ago. `snapshotted: false` marks
+ * them honestly so a reader knows which kind of record they are looking at.
+ */
+function fromLivePackage(quote, travelDate) {
+  return {
+    snapshotted: false,
+    capturedAt: null,
+    schemaVersion: null,
+
+    countryName: quote.package.destination.name,
+    packageTitle: quote.package.title,
+    days: quote.package.days,
+    totalNights: quote.package.nights,
+    tripStart: withDayName(travelDate),
+    tripEnd: withDayName(addDays(travelDate, quote.package.nights)),
+    stays: buildStays(quote.package.packageHotels, travelDate),
+    inclusions: quote.package.inclusions,
+    exclusions: quote.package.exclusions,
+    dayWise: quote.package.packageDays.map((d) => ({
+      dayNumber: d.dayNumber,
+      title: d.title,
+      description: d.description,
+      ...withDayName(addDays(travelDate, d.dayNumber - 1)),
+    })),
+    visa: null,
+    transportPlan: quote.package.packageTransport ?? [],
+  };
+}
+
 async function getVoucher(quoteId, user) {
   const quote = await prisma.quote.findUnique({
     where: { id: quoteId },
@@ -141,8 +218,13 @@ async function getVoucher(quoteId, user) {
           packageDays: { where: { archived: false }, orderBy: { dayNumber: 'asc' } },
           packageHotels: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
           packageTransport: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
+          // Only ever used as the fallback for a quote whose snapshot predates Phase 6.
+          cancellationPolicy: {
+            include: { tiers: { where: { archived: false }, orderBy: { daysBeforeTravelMin: 'asc' } } },
+          },
         },
       },
+      snapshot: true,
       travellers: { where: { archived: false }, orderBy: { createdAt: 'asc' } },
       transport: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
       insurance: { where: { archived: false }, orderBy: { createdAt: 'asc' } },
@@ -164,18 +246,38 @@ async function getVoucher(quoteId, user) {
     throw ApiError.notFound(`No quote exists with id ${quoteId}`);
   }
 
-  const termsBlocks = await prisma.contentBlock.findMany({
-    where: { name: { in: TERMS_BLOCK_NAMES }, archived: false },
-    select: { name: true, title: true, body: true },
-  });
-
-  // Preserve the declared order rather than whatever the database returned, so the printed page
-  // reads in the same sequence every time.
-  const terms = TERMS_BLOCK_NAMES.map((name) => termsBlocks.find((b) => b.name === name)).filter(
-    Boolean
-  );
-
   const travelDate = new Date(quote.travelDate);
+
+  // Terms come from the snapshot where one captured them, and live only where it did not.
+  //
+  // Version 1 snapshots predate Phase 6 and hold no terms, so those fall back to the current wording
+  // — the same trade the itinerary makes. Reading live for a snapshotted quote would mean an admin
+  // rewriting the terms silently changes the document a customer already holds.
+  const captured = quote.snapshot?.document;
+  const terms = captured?.terms?.length ? captured.terms : await noteBlockService.forVoucher();
+
+  // A version 1 snapshot did not capture the policy at all. That is NOT the same as "no policy
+  // applies" — saying so would tell a customer their trip is free to cancel — so the two states are
+  // reported separately and the caller decides what to print.
+  const cancellation = captured
+    ? {
+        captured: Object.prototype.hasOwnProperty.call(captured, 'cancellationPolicy'),
+        policy: captured.cancellationPolicy ?? null,
+      }
+    : {
+        captured: false,
+        policy: quote.package?.cancellationPolicy ?? null,
+      };
+
+  // The itinerary comes from the snapshot when there is one, and from the live package only for
+  // quotes issued before snapshots existed.
+  //
+  // This is the fix, and it is deliberately a fallback rather than a backfill: a snapshot invented
+  // today from today's package would claim to record what a customer was told months ago, which is
+  // worse than admitting the record does not exist. `snapshotted` says which of the two it is.
+  const itinerary = quote.snapshot
+    ? fromSnapshot(quote.snapshot, quote)
+    : fromLivePackage(quote, travelDate);
 
   return {
     // 1. Trip reference
@@ -200,25 +302,8 @@ async function getVoucher(quoteId, user) {
     // 2. Payment details
     payment: buildPayments(quote.payments, quote),
 
-    // 3. Full quote details, day-wise
-    itinerary: {
-      countryName: quote.package.destination.name,
-      packageTitle: quote.package.title,
-      days: quote.package.days,
-      totalNights: quote.package.nights,
-      tripStart: withDayName(travelDate),
-      tripEnd: withDayName(addDays(travelDate, quote.package.nights)),
-      stays: buildStays(quote.package.packageHotels, travelDate),
-      inclusions: quote.package.inclusions,
-      exclusions: quote.package.exclusions,
-      dayWise: quote.package.packageDays.map((d) => ({
-        dayNumber: d.dayNumber,
-        title: d.title,
-        description: d.description,
-        // The calendar date this day falls on, so a guest can match the itinerary to their diary.
-        ...withDayName(addDays(travelDate, d.dayNumber - 1)),
-      })),
-    },
+    // 3. Full quote details, day-wise — frozen at generation, see `itinerary` above.
+    itinerary,
 
     // 1b. The travel actually booked for this trip. Falls back to the package's PLAN when nothing
     // has been booked yet, so an itinerary sent before ticketing still says what is included
@@ -259,7 +344,12 @@ async function getVoucher(quoteId, user) {
       toursAndTransfers: quote.package.destination.toursAndTransfersNotes,
       terms,
     },
+
+    // 7. Cancellation terms as agreed. `captured: false` means this quote predates snapshotting of
+    // the policy, so what is shown is today's version rather than the one that was agreed — the
+    // renderer must say so rather than presenting it as the contract.
+    cancellation,
   };
 }
 
-module.exports = { getVoucher, buildStays, ageOn, TERMS_BLOCK_NAMES };
+module.exports = { getVoucher, buildStays, ageOn };

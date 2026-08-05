@@ -8,21 +8,54 @@ import {
   Icon,
   Input,
   Modal,
-  Select,
+  Pagination,
   Skeleton,
   Switch,
+  Table,
   Textarea,
   useToast,
 } from '../../components/ui';
+import LibraryPicker from '../../components/library/LibraryPicker';
+import RateCardEditor from '../../components/library/RateCardEditor';
+import HotelVendorEditor from '../../components/library/HotelVendorEditor';
 import RepeatableUrlList from '../../components/admin/RepeatableUrlList';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 
-const EMPTY_FORM = { name: '', category: '', description: '', images: [] };
+const PAGE_SIZE = 50;
+
+/**
+ * Hotels — master data, not booking data.
+ *
+ * A hotel row here is never sold directly: PackageHotel COPIES a hotel's details in at the moment
+ * it is added to a package (locked rule 2), so a package a customer already holds is untouched by
+ * anything edited on this screen. What lives here is purely the reusable source a package builder
+ * picks FROM — same relationship as Destinations and Day Templates.
+ *
+ * Two things beyond name/category hang off a hotel and need their own editors, same reasoning as a
+ * cancellation policy's bands: a hotel's substance is not a form.
+ *   Rates      — HotelRate rows: what a room costs, by date range, occupancy, meal plan and
+ *                supplier. RateCardEditor.
+ *   Suppliers  — HotelVendor rows: which suppliers this room is bought through, and on what terms
+ *                (allocation, release days, cancellation policy). HotelVendorEditor. A rate line
+ *                can be pinned to one of these suppliers.
+ */
+
+const EMPTY_FORM = {
+  name: '',
+  category: '',
+  starRating: '',
+  description: '',
+  roomType: '',
+  mealPlan: '',
+  images: [],
+};
 
 function HotelsTab() {
-  const [destinations, setDestinations] = useState([]);
+  const [countryId, setCountryId] = useState('');
   const [destinationId, setDestinationId] = useState('');
   const [hotels, setHotels] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -35,9 +68,9 @@ function HotelsTab() {
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    apiGet('/api/destinations').then((res) => setDestinations(res.destinations)).catch(() => {});
-  }, []);
+  // Which child editor is open for which hotel — null when neither is.
+  const [ratesFor, setRatesFor] = useState(null);
+  const [suppliersFor, setSuppliersFor] = useState(null);
 
   const load = () => {
     if (!destinationId) {
@@ -46,16 +79,31 @@ function HotelsTab() {
     }
     setLoading(true);
     setError(null);
-    return apiGet(`/api/hotels?destinationId=${destinationId}&includeArchived=${includeArchived}`)
-      .then((res) => setHotels(res.hotels))
+
+    const params = new URLSearchParams({
+      destinationId,
+      includeArchived: String(includeArchived),
+      limit: String(PAGE_SIZE),
+      offset: String((page - 1) * PAGE_SIZE),
+    });
+
+    return apiGet(`/api/hotels?${params.toString()}`)
+      .then((res) => {
+        setHotels(res.hotels);
+        setTotal(res.total);
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load hotels.'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [destinationId, includeArchived]);
+
+  useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [destinationId, includeArchived]);
+  }, [destinationId, includeArchived, page]);
 
   const openCreate = () => {
     setEditing(null);
@@ -67,7 +115,15 @@ function HotelsTab() {
 
   const openEdit = (h) => {
     setEditing(h);
-    setForm({ name: h.name, category: h.category, description: h.description, images: h.images ?? [] });
+    setForm({
+      name: h.name,
+      category: h.category,
+      starRating: h.starRating != null ? String(h.starRating) : '',
+      description: h.description,
+      roomType: h.roomType ?? '',
+      mealPlan: h.mealPlan ?? '',
+      images: h.images ?? [],
+    });
     setErrors({});
     setFormError(null);
     setModalOpen(true);
@@ -82,26 +138,24 @@ function HotelsTab() {
     if (Object.keys(nextErrors).length > 0) return;
 
     const images = form.images.map((i) => i.trim()).filter(Boolean);
+    const payload = {
+      name: form.name.trim(),
+      category: form.category.trim(),
+      description: form.description.trim(),
+      starRating: form.starRating === '' ? null : Number(form.starRating),
+      roomType: form.roomType.trim() || null,
+      mealPlan: form.mealPlan.trim() || null,
+      images,
+    };
 
     setSaving(true);
     setFormError(null);
     try {
       if (editing) {
-        await apiPatch(`/api/hotels/${editing.id}`, {
-          name: form.name.trim(),
-          category: form.category.trim(),
-          description: form.description.trim(),
-          images,
-        });
+        await apiPatch(`/api/hotels/${editing.id}`, payload);
         showToast({ variant: 'success', message: 'Hotel updated.' });
       } else {
-        await apiPost('/api/hotels', {
-          destinationId,
-          name: form.name.trim(),
-          category: form.category.trim(),
-          description: form.description.trim(),
-          images,
-        });
+        await apiPost('/api/hotels', { ...payload, destinationId });
         showToast({ variant: 'success', message: 'Hotel created.' });
       }
       setModalOpen(false);
@@ -136,24 +190,38 @@ function HotelsTab() {
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:w-1/2">
-          <Select
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <LibraryPicker
+            entity="country"
+            label="Country"
+            value={countryId}
+            onChange={(next) => {
+              setCountryId(next);
+              // A destination from the previous country would still be in effect and would
+              // silently list the wrong hotels — clearing it is the only correct move here.
+              setDestinationId('');
+            }}
+            placeholder="Search countries…"
+            allowCreate={false}
+          />
+          <LibraryPicker
+            entity="destination"
             label="Destination"
             value={destinationId}
-            onChange={(e) => setDestinationId(e.target.value)}
-            options={[
-              { value: '', label: 'Select a destination...' },
-              ...destinations.map((d) => ({ value: d.id, label: d.name })),
-            ]}
+            onChange={setDestinationId}
+            scopeId={countryId || undefined}
+            placeholder={countryId ? 'Search destinations…' : 'Pick a country first'}
+            disabled={!countryId}
+            allowCreate={false}
           />
         </div>
       </Card>
 
       {!destinationId ? (
         <EmptyState
-          icon="map-pin"
+          icon="building"
           title="Pick a destination"
-          description="Hotels belong to a destination. Choose one above to manage its properties."
+          description="Hotels are master data scoped to a destination — never to a package or a quote. Pick one above to see what is on file, independent of anything built from it."
         />
       ) : (
         <>
@@ -172,19 +240,14 @@ function HotelsTab() {
           {error && <Alert variant="danger">{error}</Alert>}
 
           {loading ? (
-            <div className="flex flex-col gap-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                // eslint-disable-next-line react/no-array-index-key
-                <Card key={i}>
-                  <Skeleton.Text lines={2} />
-                </Card>
-              ))}
-            </div>
+            <Card bodyClassName="p-5">
+              <Skeleton.Rows rows={4} cols={5} />
+            </Card>
           ) : hotels.length === 0 ? (
             <EmptyState
               icon="building"
               title="No hotels yet"
-              description="Add the properties for this destination so packages can bundle accommodation."
+              description="Add the properties for this destination so packages can bundle accommodation. Each one stays reusable — packages copy its details in rather than referencing it."
               action={
                 <Button onClick={openCreate}>
                   <Icon name="plus" size={16} />
@@ -193,53 +256,81 @@ function HotelsTab() {
               }
             />
           ) : (
-            <div className="flex flex-col gap-3">
-              {hotels.map((h) => (
-                <Card key={h.id} className={h.archived ? 'opacity-75' : undefined}>
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-[15px] font-semibold text-neutral-900">{h.name}</h3>
-                        <Badge variant="info">{h.category}</Badge>
-                        {h.archived && (
+            <Card bodyClassName="p-0">
+              <Table minWidth="52rem">
+                <Table.Head>
+                  <Table.HeadCell>Name</Table.HeadCell>
+                  <Table.HeadCell>Category</Table.HeadCell>
+                  <Table.HeadCell align="right">Star rating</Table.HeadCell>
+                  <Table.HeadCell>Room / meal plan</Table.HeadCell>
+                  <Table.HeadCell>Status</Table.HeadCell>
+                  <Table.HeadCell align="right">
+                    <span className="sr-only">Actions</span>
+                  </Table.HeadCell>
+                </Table.Head>
+                <Table.Body>
+                  {hotels.map((h) => (
+                    <Table.Row key={h.id} className={h.archived ? 'bg-neutral-50/60' : undefined}>
+                      <Table.Cell strong>
+                        {h.name}
+                        {h.images?.length > 0 && (
+                          <span className="ml-1.5 inline-flex items-center gap-1 text-[11px] font-normal text-neutral-400">
+                            <Icon name="file" size={11} />
+                            {h.images.length}
+                          </span>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>{h.category}</Table.Cell>
+                      <Table.Cell align="right" className="tabular-nums">
+                        {h.starRating ?? '—'}
+                      </Table.Cell>
+                      <Table.Cell>
+                        {[h.roomType, h.mealPlan].filter(Boolean).join(' · ') || '—'}
+                      </Table.Cell>
+                      <Table.Cell>
+                        {h.archived ? (
                           <Badge variant="neutral" dot>
                             Archived
                           </Badge>
+                        ) : (
+                          <Badge variant="success" dot>
+                            Active
+                          </Badge>
                         )}
-                      </div>
-                      <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-neutral-600">
-                        {h.description}
-                      </p>
-                      {h.images?.length > 0 && (
-                        <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-neutral-400">
-                          <Icon name="file" size={12} />
-                          {h.images.length} image{h.images.length === 1 ? '' : 's'}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-none gap-2">
-                      {!h.archived && (
-                        <Button variant="outline" size="sm" onClick={() => openEdit(h)}>
-                          <Icon name="pencil" size={13} />
-                          Edit
-                        </Button>
-                      )}
-                      {h.archived ? (
-                        <Button variant="outline" size="sm" onClick={() => handleRestore(h)}>
-                          <Icon name="restore" size={13} />
-                          Restore
-                        </Button>
-                      ) : (
-                        <Button variant="outline" size="sm" onClick={() => handleArchive(h)}>
-                          <Icon name="archive" size={13} />
-                          Archive
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
+                      </Table.Cell>
+                      <Table.Cell align="right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setRatesFor(h)}>
+                            Rates
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setSuppliersFor(h)}>
+                            Suppliers
+                          </Button>
+                          {!h.archived && (
+                            <Button variant="outline" size="sm" onClick={() => openEdit(h)}>
+                              <Icon name="pencil" size={13} />
+                              Edit
+                            </Button>
+                          )}
+                          {h.archived ? (
+                            <Button variant="outline" size="sm" onClick={() => handleRestore(h)}>
+                              <Icon name="restore" size={13} />
+                              Restore
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm" onClick={() => handleArchive(h)}>
+                              <Icon name="archive" size={13} />
+                              Archive
+                            </Button>
+                          )}
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+              <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
+            </Card>
           )}
         </>
       )}
@@ -273,14 +364,24 @@ function HotelsTab() {
             onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
             error={errors.name}
           />
-          <Input
-            label="Category"
-            required
-            value={form.category}
-            onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
-            error={errors.category}
-            hint={!errors.category ? 'e.g. 5-star, Boutique, Budget' : undefined}
-          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Category"
+              required
+              value={form.category}
+              onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
+              error={errors.category}
+              hint={!errors.category ? 'e.g. 5-star, Boutique, Budget' : undefined}
+            />
+            <Input
+              label="Star rating"
+              type="number"
+              min="1"
+              max="7"
+              value={form.starRating}
+              onChange={(e) => setForm((prev) => ({ ...prev, starRating: e.target.value }))}
+            />
+          </div>
           <Textarea
             label="Description"
             required
@@ -289,12 +390,39 @@ function HotelsTab() {
             onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
             error={errors.description}
           />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Default room type"
+              value={form.roomType}
+              onChange={(e) => setForm((prev) => ({ ...prev, roomType: e.target.value }))}
+              hint="What a package starts from when it copies this hotel in."
+            />
+            <Input
+              label="Default meal plan"
+              value={form.mealPlan}
+              onChange={(e) => setForm((prev) => ({ ...prev, mealPlan: e.target.value }))}
+            />
+          </div>
           <RepeatableUrlList
+            purpose="packageHotel"
             label="Images"
             values={form.images}
             onChange={(images) => setForm((prev) => ({ ...prev, images }))}
           />
         </div>
+      </Modal>
+
+      <Modal open={Boolean(ratesFor)} onClose={() => setRatesFor(null)} title={`Rate card — ${ratesFor?.name ?? ''}`} size="lg">
+        {ratesFor && <RateCardEditor hotelId={ratesFor.id} onClose={() => setRatesFor(null)} />}
+      </Modal>
+
+      <Modal
+        open={Boolean(suppliersFor)}
+        onClose={() => setSuppliersFor(null)}
+        title={`Suppliers — ${suppliersFor?.name ?? ''}`}
+        size="lg"
+      >
+        {suppliersFor && <HotelVendorEditor hotelId={suppliersFor.id} onClose={() => setSuppliersFor(null)} />}
       </Modal>
     </div>
   );

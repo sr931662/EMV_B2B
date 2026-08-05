@@ -14,10 +14,10 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const list = asyncHandler(async (req, res) => {
-  const { includeArchived } = req.validatedQuery;
-  const countries = await visaCountryService.list({ includeArchived });
+  const { includeArchived, limit, offset } = req.validatedQuery;
+  const { countries, total } = await visaCountryService.list({ includeArchived, limit, offset });
 
-  res.status(200).json({ count: countries.length, includeArchived, countries });
+  res.status(200).json({ count: countries.length, total, limit, offset, includeArchived, countries });
 });
 
 const getOne = asyncHandler(async (req, res) => {

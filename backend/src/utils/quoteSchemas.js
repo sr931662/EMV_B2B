@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { paginationFields } = require('./paginationSchema');
 
 const MAX_PRICE = 9999999999.99; // Decimal(12,2)
 
@@ -125,6 +126,7 @@ const listQuotesSchema = z
       .enum(['true', 'false'], { error: "includeArchived must be 'true' or 'false'" })
       .optional()
       .transform((v) => v === 'true'),
+    ...paginationFields,
   })
   .strict();
 

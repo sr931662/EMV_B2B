@@ -8,6 +8,7 @@ import {
   Icon,
   Input,
   Modal,
+  Pagination,
   Select,
   Skeleton,
   Switch,
@@ -15,13 +16,17 @@ import {
   useToast,
 } from '../../components/ui';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
+import { PICKER_FULL_LIST_LIMIT } from '../../lib/constants';
 
+const PAGE_SIZE = 50;
 const EMPTY_FORM = { title: '', description: '' };
 
 function DayTemplatesTab() {
   const [destinations, setDestinations] = useState([]);
   const [destinationId, setDestinationId] = useState('');
   const [templates, setTemplates] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -35,7 +40,11 @@ function DayTemplatesTab() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    apiGet('/api/destinations').then((res) => setDestinations(res.destinations)).catch(() => {});
+    // This is a filter dropdown, not a browse list — it needs every destination that exists, so
+    // it asks for the app's practical ceiling rather than a paged default.
+    apiGet(`/api/destinations?limit=${PICKER_FULL_LIST_LIMIT}`)
+      .then((res) => setDestinations(res.destinations))
+      .catch(() => {});
   }, []);
 
   const load = () => {
@@ -45,16 +54,31 @@ function DayTemplatesTab() {
     }
     setLoading(true);
     setError(null);
-    return apiGet(`/api/day-templates?destinationId=${destinationId}&includeArchived=${includeArchived}`)
-      .then((res) => setTemplates(res.dayTemplates))
+
+    const params = new URLSearchParams({
+      destinationId,
+      includeArchived: String(includeArchived),
+      limit: String(PAGE_SIZE),
+      offset: String((page - 1) * PAGE_SIZE),
+    });
+
+    return apiGet(`/api/day-templates?${params.toString()}`)
+      .then((res) => {
+        setTemplates(res.dayTemplates);
+        setTotal(res.total);
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load day templates.'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [destinationId, includeArchived]);
+
+  useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [destinationId, includeArchived]);
+  }, [destinationId, includeArchived, page]);
 
   const openCreate = () => {
     setEditing(null);

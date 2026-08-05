@@ -14,9 +14,9 @@ const create = asyncHandler(async (req, res) => {
  */
 const list = asyncHandler(async (req, res) => {
   const filters = req.validatedQuery;
-  const products = await visaProductService.list(filters);
+  const { products, total, limit, offset } = await visaProductService.list(filters);
 
-  res.status(200).json({ count: products.length, filters, products });
+  res.status(200).json({ count: products.length, total, limit, offset, filters, products });
 });
 
 const getOne = asyncHandler(async (req, res) => {

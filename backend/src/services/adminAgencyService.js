@@ -112,7 +112,7 @@ async function getById(id) {
         status: true,
         archived: true,
         createdAt: true,
-        visaCountry: { select: { name: true } },
+        country: { select: { name: true } },
         _count: { select: { passengers: { where: { archived: false } } } },
       },
       orderBy: { createdAt: 'desc' },
@@ -155,7 +155,7 @@ async function getById(id) {
     visaRequests: visaRequests.map((v) => ({
       id: v.id,
       applicationNumber: v.applicationNumber,
-      countryName: v.visaCountry.name,
+      countryName: v.country.name,
       status: v.status,
       passengerCount: v._count.passengers,
       archived: v.archived,

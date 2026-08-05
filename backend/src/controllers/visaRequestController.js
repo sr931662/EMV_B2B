@@ -16,10 +16,16 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const list = asyncHandler(async (req, res) => {
-  const visaRequests = await visaRequestService.list(req.validatedQuery, req.user);
+  const { requests: visaRequests, total, limit, offset } = await visaRequestService.list(
+    req.validatedQuery,
+    req.user
+  );
 
   res.status(200).json({
     count: visaRequests.length,
+    total,
+    limit,
+    offset,
     scope: req.user.role === 'admin' ? 'all partners' : 'own requests only',
     visaRequests,
   });

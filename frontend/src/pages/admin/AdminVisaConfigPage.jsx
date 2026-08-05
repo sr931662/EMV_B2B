@@ -7,6 +7,7 @@ import {
   Icon,
   Input,
   Modal,
+  Pagination,
   Select,
   Spinner,
   Textarea,
@@ -14,6 +15,7 @@ import {
 } from '../../components/ui';
 import VisaSubNav from '../../components/admin/VisaSubNav';
 import ImageUploadField from '../../components/shared/ImageUploadField';
+import LibraryPicker from '../../components/library/LibraryPicker';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 import { formatCurrency } from '../../lib/format';
 import {
@@ -33,6 +35,8 @@ import {
  * The product level exists because one country sells several visa options with different
  * processing times, fees and paperwork, and the country row can only hold one of each.
  */
+
+const PAGE_SIZE = 50;
 
 function CountryModal({ open, onClose, editing, onSaved }) {
   const [name, setName] = useState('');
@@ -514,6 +518,7 @@ function ProductModal({ open, onClose, countryId, editing, onSaved }) {
 }
 
 function DocumentModal({ open, onClose, productId, editing, onSaved }) {
+  const [documentTypeId, setDocumentTypeId] = useState('');
   const [documentName, setDocumentName] = useState('');
   const [category, setCategory] = useState('OTHER');
   const [isMandatory, setIsMandatory] = useState(true);
@@ -524,6 +529,7 @@ function DocumentModal({ open, onClose, productId, editing, onSaved }) {
 
   useEffect(() => {
     if (open) {
+      setDocumentTypeId(editing?.documentTypeId ?? '');
       setDocumentName(editing?.documentName ?? '');
       setCategory(editing?.category ?? 'OTHER');
       setIsMandatory(editing?.isMandatory ?? true);
@@ -531,6 +537,25 @@ function DocumentModal({ open, onClose, productId, editing, onSaved }) {
       setFormError(null);
     }
   }, [open, editing]);
+
+  /**
+   * Picking a library type fills in the wording and the category.
+   *
+   * This is the whole point of DocumentType: the same document was appearing as "Bank Statement",
+   * "bank statement" and "6-month bank statements" across products, so the documents filter could
+   * never work on it. The name stays editable afterwards — a product may legitimately say
+   * "Passport (first and last page)" where the type is simply "Passport".
+   */
+  const applyType = (id, items) => {
+    setDocumentTypeId(id);
+
+    const chosen = items?.[0];
+    if (!chosen) return;
+
+    setDocumentName(chosen.label);
+    if (chosen.meta?.category) setCategory(chosen.meta.category);
+    if (chosen.meta?.isMandatoryByDefault !== undefined) setIsMandatory(chosen.meta.isMandatoryByDefault);
+  };
 
   const handleSave = async () => {
     if (!documentName.trim()) {
@@ -540,7 +565,12 @@ function DocumentModal({ open, onClose, productId, editing, onSaved }) {
     setSaving(true);
     setFormError(null);
     try {
-      const payload = { documentName: documentName.trim(), category, isMandatory };
+      const payload = {
+        documentTypeId: documentTypeId || null,
+        documentName: documentName.trim(),
+        category,
+        isMandatory,
+      };
       if (editing) {
         await apiPatch(`/api/visa-products/${productId}/documents/${editing.id}`, payload);
         showToast({ variant: 'success', message: 'Required document updated.' });
@@ -578,13 +608,21 @@ function DocumentModal({ open, onClose, productId, editing, onSaved }) {
         </Alert>
       )}
       <div className="flex flex-col gap-4">
+        <LibraryPicker
+          entity="documentType"
+          label="Document type"
+          value={documentTypeId}
+          onChange={applyType}
+          placeholder="Search the document library…"
+          hint="Fills in the wording and the category below. Picking one is what makes the documents filter work across products."
+        />
         <Input
           label="Document name"
           required
           value={documentName}
           onChange={(e) => setDocumentName(e.target.value)}
           error={error}
-          hint={!error ? 'Exactly as the partner should read it, e.g. "6-month bank statement"' : undefined}
+          hint={!error ? 'How the partner reads it. Override the library wording where this product needs to be more specific.' : undefined}
         />
         <Select
           label="Category"
@@ -605,6 +643,8 @@ function DocumentModal({ open, onClose, productId, editing, onSaved }) {
 
 function AdminVisaConfigPage() {
   const [countries, setCountries] = useState([]);
+  const [countriesTotal, setCountriesTotal] = useState(0);
+  const [countriesPage, setCountriesPage] = useState(1);
   const [includeArchivedCountries, setIncludeArchivedCountries] = useState(false);
   const [loadingCountries, setLoadingCountries] = useState(true);
   const [countriesError, setCountriesError] = useState(null);
@@ -613,6 +653,8 @@ function AdminVisaConfigPage() {
 
   const [selectedCountryId, setSelectedCountryId] = useState(null);
   const [products, setProducts] = useState([]);
+  const [productsTotal, setProductsTotal] = useState(0);
+  const [productsPage, setProductsPage] = useState(1);
   const [includeArchivedProducts, setIncludeArchivedProducts] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productsError, setProductsError] = useState(null);
@@ -632,33 +674,56 @@ function AdminVisaConfigPage() {
   const loadCountries = () => {
     setLoadingCountries(true);
     setCountriesError(null);
-    return apiGet(`/api/visa-countries?includeArchived=${includeArchivedCountries}`)
-      .then((res) => setCountries(res.countries))
+    const params = new URLSearchParams({
+      includeArchived: String(includeArchivedCountries),
+      limit: String(PAGE_SIZE),
+      offset: String((countriesPage - 1) * PAGE_SIZE),
+    });
+    return apiGet(`/api/visa-countries?${params.toString()}`)
+      .then((res) => {
+        setCountries(res.countries);
+        setCountriesTotal(res.total);
+      })
       .catch((err) => setCountriesError(err instanceof ApiError ? err.message : 'Failed to load countries.'))
       .finally(() => setLoadingCountries(false));
   };
 
   useEffect(() => {
+    setCountriesPage(1);
+  }, [includeArchivedCountries]);
+
+  useEffect(() => {
     loadCountries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeArchivedCountries]);
+  }, [includeArchivedCountries, countriesPage]);
 
   const loadProducts = () => {
     if (!selectedCountryId) return undefined;
     setLoadingProducts(true);
     setProductsError(null);
-    return apiGet(
-      `/api/visa-products?visaCountryId=${selectedCountryId}&includeArchived=${includeArchivedProducts}`
-    )
-      .then((res) => setProducts(res.products))
+    const params = new URLSearchParams({
+      visaCountryId: selectedCountryId,
+      includeArchived: String(includeArchivedProducts),
+      limit: String(PAGE_SIZE),
+      offset: String((productsPage - 1) * PAGE_SIZE),
+    });
+    return apiGet(`/api/visa-products?${params.toString()}`)
+      .then((res) => {
+        setProducts(res.products);
+        setProductsTotal(res.total);
+      })
       .catch((err) => setProductsError(err instanceof ApiError ? err.message : 'Failed to load products.'))
       .finally(() => setLoadingProducts(false));
   };
 
   useEffect(() => {
+    setProductsPage(1);
+  }, [selectedCountryId, includeArchivedProducts]);
+
+  useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCountryId, includeArchivedProducts]);
+  }, [selectedCountryId, includeArchivedProducts, productsPage]);
 
   const loadDocuments = () => {
     if (!selectedProductId) return undefined;
@@ -844,6 +909,13 @@ function AdminVisaConfigPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination
+              page={countriesPage}
+              pageSize={PAGE_SIZE}
+              total={countriesTotal}
+              onPageChange={setCountriesPage}
+              loading={loadingCountries}
+            />
           </Card>
         )}
       </div>
@@ -971,6 +1043,13 @@ function AdminVisaConfigPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination
+                page={productsPage}
+                pageSize={PAGE_SIZE}
+                total={productsTotal}
+                onPageChange={setProductsPage}
+                loading={loadingProducts}
+              />
             </Card>
           )}
         </div>

@@ -28,10 +28,13 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const list = asyncHandler(async (req, res) => {
-  const quotes = await quoteService.list(req.validatedQuery, req.user);
+  const { quotes, total, limit, offset } = await quoteService.list(req.validatedQuery, req.user);
 
   res.status(200).json({
     count: quotes.length,
+    total,
+    limit,
+    offset,
     scope: req.user.role === 'admin' ? 'all partners' : 'own quotes only',
     quotes,
   });

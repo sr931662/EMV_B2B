@@ -7,6 +7,8 @@ const hotelRoutes = require('./hotelRoutes');
 const packageRoutes = require('./packageRoutes');
 const quoteRoutes = require('./quoteRoutes');
 const adminPaymentRoutes = require('./adminPaymentRoutes');
+const libraryRoutes = require('./libraryRoutes');
+const rateRoutes = require('./rateRoutes');
 const uploadRoutes = require('./uploadRoutes');
 const visaCountryRoutes = require('./visaCountryRoutes');
 const visaProductRoutes = require('./visaProductRoutes');
@@ -37,6 +39,13 @@ router.use('/quotes', quoteRoutes);
 
 // Admin verification queue (build step 6, extended in step 7 for VISA payments). Admin-only.
 router.use('/admin/payments', adminPaymentRoutes);
+
+// Master data. One route table for every library entity — see services/libraryRegistry.js.
+router.use('/library', libraryRoutes);
+
+// Rate cards and supplier contracts (build step: Library Phase 5). Reads open to partners, because
+// "what does this cost on these dates" is the question a quote is built around; writes admin-only.
+router.use('/rates', rateRoutes);
 
 // Signed direct-to-Cloudinary image uploads. No files pass through this server — see
 // cloudinaryService for why.

@@ -26,7 +26,7 @@ async function create({ destinationId, title, description }) {
  * still false. Archiving a destination never mutates its children, so restoring the
  * destination brings them all back exactly as they were.
  */
-async function list({ destinationId, includeArchived = false } = {}) {
+async function list({ destinationId, includeArchived = false, limit = 50, offset = 0 } = {}) {
   const where = {};
   if (destinationId) where.destinationId = destinationId;
 
@@ -35,11 +35,18 @@ async function list({ destinationId, includeArchived = false } = {}) {
     where.destination = { is: { archived: false } };
   }
 
-  return prisma.dayTemplate.findMany({
-    where,
-    orderBy: { title: 'asc' },
-    include: { destination: DESTINATION_SUMMARY },
-  });
+  const [dayTemplates, total] = await Promise.all([
+    prisma.dayTemplate.findMany({
+      where,
+      orderBy: { title: 'asc' },
+      include: { destination: DESTINATION_SUMMARY },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.dayTemplate.count({ where }),
+  ]);
+
+  return { dayTemplates, total, limit, offset };
 }
 
 /**

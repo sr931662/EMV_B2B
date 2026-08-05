@@ -14,12 +14,126 @@ import ChipInput from '../../components/admin/ChipInput';
 import RepeatableUrlList from '../../components/admin/RepeatableUrlList';
 import DayTemplatePicker from '../../components/admin/DayTemplatePicker';
 import HotelPicker from '../../components/admin/HotelPicker';
+import LibraryPicker from '../../components/library/LibraryPicker';
 import { apiGet, apiPost, apiPatch, apiDownload, ApiError } from '../../api/client';
 import { slugify } from '../../lib/format';
 
 const TAG_SUGGESTIONS = ['Family', 'Honeymoon', 'Luxury', 'Adventure', 'Budget', 'Beach', 'Romantic', 'Group'];
 
 const EMPTY_FORM = { title: '', days: '', nights: '', rawPrice: '', inclusions: '', exclusions: '' };
+
+/**
+ * Turns chosen vocabulary items into the prose the package stores.
+ *
+ * Composing rather than referencing is deliberate, and it is the whole shape of how the library
+ * meets a package. `Package.inclusions` is what a customer reads on a quote, so it must be FROZEN
+ * text — rule 2. What the picker adds is that the text is now assembled from named items instead of
+ * typed from memory, so the same inclusion reads identically across every package, and the links
+ * recorded alongside make "which packages include airport transfers" a query.
+ *
+ * Existing free-typed lines are preserved: someone editing an old package must not lose what they
+ * wrote because they touched the picker.
+ */
+function composeLines(existingText, items) {
+  const fromLibrary = items.map((item) => item.label ?? item.name).filter(Boolean);
+  const manual = String(existingText ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !fromLibrary.includes(line));
+
+  return [...fromLibrary, ...manual].join('\n');
+}
+
+/**
+ * What the selected hotels actually cost, from their rate cards.
+ *
+ * The payoff of Phase 5, and the reason rate cards were worth building. `rawPrice` has always been a
+ * number someone typed from a spreadsheet open in another window; this prices the same hotels
+ * through the same resolver a quote uses, so the two cannot disagree.
+ *
+ * Deliberately an ESTIMATE and not an auto-fill. A package price includes transfers, activities,
+ * margin and rounding that no rate card knows about, so writing it into the field would be
+ * confidently wrong. It is shown next to the field instead, and the human decides.
+ */
+function CostFromRates({ hotelIds, nights, estimate, onEstimate }) {
+  const [checkIn, setCheckIn] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const start = new Date(checkIn);
+      const results = await Promise.all(
+        hotelIds.map((hotelId) => {
+          // Each hotel is priced for the whole stay. Splitting nights between them needs the
+          // itinerary's stay chaining, which lives on the voucher — this is a sanity check, not a
+          // costing engine, and pretending otherwise would make it wrong in a subtler way.
+          const out = new Date(start);
+          out.setUTCDate(out.getUTCDate() + Math.max(Number(nights) || 1, 1));
+
+          const params = new URLSearchParams({
+            checkIn: start.toISOString().slice(0, 10),
+            checkOut: out.toISOString().slice(0, 10),
+            occupancy: 'DOUBLE',
+          });
+
+          return apiGet(`/api/rates/hotels/${hotelId}/price?${params.toString()}`).catch((err) => ({
+            priced: false,
+            reason: err instanceof ApiError ? err.message : 'Could not price.',
+          }));
+        })
+      );
+
+      onEstimate(results);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (hotelIds.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-neutral-600">
+        Check against rate cards
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Input
+          label="Sample check-in"
+          type="date"
+          value={checkIn}
+          onChange={(e) => setCheckIn(e.target.value)}
+          hint="Rates are seasonal, so a cost only means something against a date."
+        />
+        <Button size="sm" variant="outline" loading={busy} disabled={!checkIn} onClick={run}>
+          What do these hotels cost?
+        </Button>
+      </div>
+
+      {estimate && (
+        <ul className="mt-3 flex flex-col gap-1 border-t border-neutral-200 pt-3 text-[13px]">
+          {estimate.map((r, i) => (
+            <li key={i} className="flex flex-wrap items-baseline gap-2">
+              <span className="font-medium text-neutral-900">{r.hotel?.name ?? `Hotel ${i + 1}`}</span>
+              {r.priced ? (
+                <span className="tabular-nums text-neutral-700">
+                  {r.currencyCode} {r.total}{' '}
+                  <span className="text-neutral-500">for {r.nights} night(s)</span>
+                </span>
+              ) : (
+                <span className="text-danger-700">{r.reason}</span>
+              )}
+            </li>
+          ))}
+          <li className="mt-1 text-[12px] text-neutral-500">
+            Hotels only. Transfers, activities and margin are not in these numbers, so this is a
+            check on the accommodation cost — not the package price.
+          </li>
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function PackageFormPage() {
   const { id } = useParams();
@@ -32,10 +146,19 @@ function PackageFormPage() {
   const [pkgMeta, setPkgMeta] = useState(null);
   const [downloading, setDownloading] = useState(false);
 
-  const [destinations, setDestinations] = useState([]);
+  // Phase 6: the geography is a hierarchy now, so the destination picker is narrowed by country
+  // rather than listing every destination the business has ever sold.
+  const [countryId, setCountryId] = useState('');
   const [destinationId, setDestinationId] = useState('');
   const [dayTemplates, setDayTemplates] = useState([]);
   const [hotels, setHotels] = useState([]);
+
+  // What the package draws from the library.
+  const [cancellationPolicyId, setCancellationPolicyId] = useState('');
+  const [faqIds, setFaqIds] = useState([]);
+  const [inclusionIds, setInclusionIds] = useState([]);
+  const [exclusionIds, setExclusionIds] = useState([]);
+  const [rateEstimate, setRateEstimate] = useState(null);
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [gallery, setGallery] = useState(['']);
@@ -54,10 +177,6 @@ function PackageFormPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    apiGet('/api/destinations').then((res) => setDestinations(res.destinations)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     if (!isEdit) return;
     setLoading(true);
     setLoadError(null);
@@ -66,6 +185,12 @@ function PackageFormPage() {
         const pkg = res.package;
         setPkgMeta(pkg);
         setDestinationId(pkg.destination.id);
+        setCancellationPolicyId(pkg.cancellationPolicyId ?? '');
+        // Re-open showing what was chosen. A form that forgets its own selections on reload is how
+        // people conclude the picker "does not save" and go back to typing.
+        setFaqIds((pkg.library?.faqs ?? []).map((f) => f.id));
+        setInclusionIds((pkg.library?.inclusionItems ?? []).map((i) => i.id));
+        setExclusionIds((pkg.library?.exclusionItems ?? []).map((i) => i.id));
         setForm({
           title: pkg.title,
           days: String(pkg.days),
@@ -176,6 +301,13 @@ function PackageFormPage() {
       tags,
     };
 
+    // Library links go on both create and update. Unlike the itinerary these are not "replace the
+    // whole thing" edits with consequences — they are what the package is tagged with.
+    payload.cancellationPolicyId = cancellationPolicyId || null;
+    payload.faqIds = faqIds;
+    payload.inclusionIds = inclusionIds;
+    payload.exclusionIds = exclusionIds;
+
     if (!isEdit) {
       payload.destinationId = destinationId;
       payload.dayTemplateIds = itinerary.map((d) => d.templateId);
@@ -259,19 +391,42 @@ function PackageFormPage() {
         {formError && <Alert variant="danger">{formError}</Alert>}
 
         <Card title="Destination">
-          <Select
-            label="Destination"
-            required
-            disabled={isEdit}
-            value={destinationId}
-            onChange={(e) => setDestinationId(e.target.value)}
-            error={errors.destinationId}
-            hint={isEdit ? "A package can't move destinations once created." : undefined}
-            options={[
-              { value: '', label: 'Select a destination...' },
-              ...destinations.map((d) => ({ value: d.id, label: d.name })),
-            ]}
-          />
+          {isEdit ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3">
+              <p className="text-[14px] font-medium text-neutral-900">{pkgMeta?.destination?.name}</p>
+              <p className="mt-0.5 text-[13px] text-neutral-500">
+                A package can’t move destinations once created — its copied days and hotels were
+                validated against this one.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <LibraryPicker
+                entity="country"
+                label="Country"
+                value={countryId}
+                onChange={(next) => {
+                  setCountryId(next);
+                  // Clearing the destination is not tidiness — a destination from the previous
+                  // country would still be submitted and would silently sell the wrong place.
+                  setDestinationId('');
+                }}
+                placeholder="Search countries…"
+                allowCreate={false}
+              />
+              <LibraryPicker
+                entity="destination"
+                label="Destination"
+                value={destinationId}
+                onChange={setDestinationId}
+                scopeId={countryId || undefined}
+                placeholder={countryId ? 'Search destinations…' : 'Pick a country first'}
+                disabled={!countryId}
+                error={errors.destinationId}
+                allowCreate={false}
+              />
+            </div>
+          )}
         </Card>
 
         <Card title="Package details">
@@ -316,30 +471,68 @@ function PackageFormPage() {
             />
           </div>
 
+          {/* Composed from the library, then stored as text. The picker settles the wording; the
+              textarea below is what a customer actually reads and is frozen into their quote. */}
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Textarea
-              label="Inclusions"
-              required
-              rows={5}
-              value={form.inclusions}
-              onChange={(e) => setForm((prev) => ({ ...prev, inclusions: e.target.value }))}
-              error={errors.inclusions}
-              hint={!errors.inclusions ? 'One line per item' : undefined}
-            />
-            <Textarea
-              label="Exclusions"
-              required
-              rows={5}
-              value={form.exclusions}
-              onChange={(e) => setForm((prev) => ({ ...prev, exclusions: e.target.value }))}
-              error={errors.exclusions}
-              hint={!errors.exclusions ? 'One line per item' : undefined}
-            />
+            <div className="flex flex-col gap-3">
+              <LibraryPicker
+                entity="lookup"
+                type="INCLUSION"
+                label="Inclusions from the library"
+                multiple
+                value={inclusionIds}
+                onChange={(ids, items) => {
+                  setInclusionIds(ids);
+                  if (items) {
+                    setForm((prev) => ({ ...prev, inclusions: composeLines(prev.inclusions, items) }));
+                  }
+                }}
+                hint="Picking an item writes its wording below. Anything you typed yourself is kept."
+              />
+              <Textarea
+                label="Inclusions"
+                required
+                rows={5}
+                value={form.inclusions}
+                onChange={(e) => setForm((prev) => ({ ...prev, inclusions: e.target.value }))}
+                error={errors.inclusions}
+                hint={!errors.inclusions ? 'One line per item. This is what the customer reads.' : undefined}
+              />
+            </div>
+            <div className="flex flex-col gap-3">
+              <LibraryPicker
+                entity="lookup"
+                type="EXCLUSION"
+                label="Exclusions from the library"
+                multiple
+                value={exclusionIds}
+                onChange={(ids, items) => {
+                  setExclusionIds(ids);
+                  if (items) {
+                    setForm((prev) => ({ ...prev, exclusions: composeLines(prev.exclusions, items) }));
+                  }
+                }}
+              />
+              <Textarea
+                label="Exclusions"
+                required
+                rows={5}
+                value={form.exclusions}
+                onChange={(e) => setForm((prev) => ({ ...prev, exclusions: e.target.value }))}
+                error={errors.exclusions}
+                hint={!errors.exclusions ? 'One line per item. This is what the customer reads.' : undefined}
+              />
+            </div>
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <ChipInput label="Tags" values={tags} onChange={setTags} suggestions={TAG_SUGGESTIONS} />
-            <RepeatableUrlList label="Gallery" values={gallery} onChange={setGallery} />
+            <RepeatableUrlList
+              label="Gallery"
+              purpose="packageGallery"
+              values={gallery}
+              onChange={setGallery}
+            />
           </div>
         </Card>
 
@@ -419,9 +612,45 @@ function PackageFormPage() {
                 onRemove={removeHotel}
                 onMove={moveHotel}
               />
+
+              <CostFromRates
+                hotelIds={selectedHotels.map((h) => h.hotelId)}
+                nights={form.nights}
+                estimate={rateEstimate}
+                onEstimate={setRateEstimate}
+              />
             </Card>
           </>
         )}
+
+        <Card title="From the library">
+          <p className="mb-4 text-sm text-neutral-500">
+            Maintained once and reused. Changing any of these later affects packages built afterwards
+            — never a quote that has already been issued, which keeps its own frozen copy.
+          </p>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <LibraryPicker
+              entity="cancellationPolicy"
+              label="Cancellation policy"
+              value={cancellationPolicyId}
+              onChange={setCancellationPolicyId}
+              placeholder="Search policies…"
+              allowCreate={false}
+              hint="Its bands are frozen into every quote generated from this package."
+            />
+            <LibraryPicker
+              entity="faq"
+              label="FAQs"
+              multiple
+              value={faqIds}
+              onChange={setFaqIds}
+              placeholder="Search FAQs…"
+              allowCreate={false}
+              hint="Written once, attached wherever they apply."
+            />
+          </div>
+        </Card>
 
         <Button type="submit" loading={submitting} className="w-full sm:w-auto sm:self-end">
           {isEdit ? 'Save changes' : 'Create Package'}

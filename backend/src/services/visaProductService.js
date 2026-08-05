@@ -144,15 +144,19 @@ const PRODUCT_SELECT = {
   archived: true,
   createdAt: true,
   updatedAt: true,
-  visaCountry: {
+  countryId: true,
+  // Selected under its real name; present() below re-keys this to `visaCountry` in the response so
+  // every existing reader (the admin config page, VisaServicesPage, VisaProductDetailPage) keeps
+  // working against the shape they were built for. See visaCountryService.js for the same trade.
+  country: {
     select: {
       id: true,
       name: true,
       shortName: true,
-      coverImageUrl: true,
+      heroImageUrl: true,
       flagImageUrl: true,
-      aboutCountry: true,
-      arrivalInfo: true,
+      description: true,
+      travelNotes: true,
       archived: true,
     },
   },
@@ -163,7 +167,19 @@ const PRODUCT_SELECT = {
   },
   requiredDocuments: {
     where: { archived: false },
-    select: { id: true, documentName: true, isMandatory: true, category: true },
+    select: {
+      id: true,
+      documentName: true,
+      isMandatory: true,
+      category: true,
+      documentTypeId: true,
+      // The library's own guidance travels with the checklist item. A specimen and a
+      // "valid for 6 months beyond travel" note are maintained once and reused by every product
+      // that asks for that document, which is the point of DocumentType existing.
+      documentType: {
+        select: { id: true, name: true, sampleImageUrl: true, requirementNotes: true, subject: true },
+      },
+    },
     orderBy: { documentName: 'asc' },
   },
 };
@@ -194,12 +210,32 @@ function summariseTimeline(steps = [], processingDaysMax) {
   };
 }
 
+/**
+ * Reshapes the `country` relation into the `visaCountry` key every existing reader expects.
+ * See the header comment on visaCountryService.js for why this alias exists.
+ */
+function presentCountry(country) {
+  if (!country) return country;
+
+  return {
+    id: country.id,
+    name: country.name,
+    shortName: country.shortName,
+    coverImageUrl: country.heroImageUrl,
+    flagImageUrl: country.flagImageUrl,
+    aboutCountry: country.description,
+    arrivalInfo: country.travelNotes,
+    archived: country.archived,
+  };
+}
+
 /** Shapes one row for the API: derived fields computed here so no caller has to re-derive them. */
 function present(product, travelDate) {
-  const { requiredDocuments, processingSteps, ...rest } = product;
+  const { requiredDocuments, processingSteps, country, ...rest } = product;
 
   return {
     ...rest,
+    visaCountry: presentCountry(country),
     requiredDocuments,
     processingSteps,
     timeline: summariseTimeline(processingSteps, product.processingDaysMax),
@@ -227,6 +263,9 @@ function present(product, travelDate) {
  *
  *   travelDate         annotates rather than filters, so a partner can see WHY something will not
  *                      make it and by how much. Pass onlyFeasible to actually drop them.
+ *
+ * `visaCountryId` is accepted as the filter name for API stability, but it filters on the real
+ * `countryId` column underneath — see the module header for why the name outlived the table.
  */
 async function list(filters = {}) {
   const {
@@ -238,6 +277,8 @@ async function list(filters = {}) {
     onlyFeasible = false,
     search,
     includeArchived = false,
+    limit = 50,
+    offset = 0,
   } = filters;
 
   const where = {};
@@ -246,10 +287,10 @@ async function list(filters = {}) {
     where.archived = false;
     // Same read-time exclusion the package marketplace uses: a product under an archived country
     // must not surface, even though the product row itself is still active.
-    where.visaCountry = { is: { archived: false } };
+    where.country = { is: { archived: false } };
   }
 
-  if (visaCountryId) where.visaCountryId = visaCountryId;
+  if (visaCountryId) where.countryId = visaCountryId;
   if (category) where.category = category;
   if (search) where.name = { contains: search, mode: 'insensitive' };
 
@@ -276,7 +317,13 @@ async function list(filters = {}) {
     products = products.filter((p) => p.feasibility?.status === 'READY_IN_TIME');
   }
 
-  return products;
+  // documentProfile/onlyFeasible are derived per row (see the doc comment above) and cannot be
+  // pushed into the SQL WHERE, so pagination has to happen after them too, in JS, over the whole
+  // filtered set — a DB-level take/skip before these filters would make both the page contents
+  // and the total count wrong whenever either filter is active.
+  const total = products.length;
+
+  return { products: products.slice(offset, offset + limit), total, limit, offset };
 }
 
 /**
@@ -290,11 +337,11 @@ async function findSimilar(product, limit = 6) {
   const shared = {
     archived: false,
     id: { not: product.id },
-    visaCountry: { is: { archived: false } },
+    country: { is: { archived: false } },
   };
 
   const sameCountry = await prisma.visaProduct.findMany({
-    where: { ...shared, visaCountryId: product.visaCountryId },
+    where: { ...shared, countryId: product.countryId },
     select: PRODUCT_SELECT,
     orderBy: [{ processingDaysMax: { sort: 'asc', nulls: 'last' } }, { name: 'asc' }],
     take: limit,
@@ -306,7 +353,7 @@ async function findSimilar(product, limit = 6) {
         where: {
           ...shared,
           category: product.category,
-          visaCountryId: { not: product.visaCountryId },
+          countryId: { not: product.countryId },
         },
         select: PRODUCT_SELECT,
         orderBy: [{ processingDaysMax: { sort: 'asc', nulls: 'last' } }, { name: 'asc' }],
@@ -335,8 +382,6 @@ async function getById(id, { travelDate, includeSimilar = false } = {}) {
 /**
  * Guard for visaRequestService: a request may only be created against a product that exists, is
  * not archived, sits under a live country, and is something you can actually apply for.
- *
- * Mirrors visaCountryService.assertActiveVisaCountry.
  */
 async function assertApplicableProduct(visaProductId) {
   const product = await prisma.visaProduct.findUnique({
@@ -348,8 +393,8 @@ async function assertApplicableProduct(visaProductId) {
       adultFee: true,
       childFee: true,
       archived: true,
-      visaCountryId: true,
-      visaCountry: { select: { name: true, archived: true } },
+      countryId: true,
+      country: { select: { name: true, archived: true } },
     },
   });
 
@@ -361,9 +406,9 @@ async function assertApplicableProduct(visaProductId) {
       `Visa product "${product.name}" is archived. Restore it before creating new requests for it.`
     );
   }
-  if (product.visaCountry.archived) {
+  if (product.country.archived) {
     throw ApiError.badRequest(
-      `Visa country "${product.visaCountry.name}" is archived. Restore it before creating new requests for it.`
+      `Visa country "${product.country.name}" is archived. Restore it before creating new requests for it.`
     );
   }
   if (!isApplicable(product.category)) {
@@ -380,17 +425,22 @@ async function assertApplicableProduct(visaProductId) {
 // Writes
 // ---------------------------------------------------------------------------
 
-async function assertCountryExists(visaCountryId) {
-  const country = await prisma.visaCountry.findUnique({
-    where: { id: visaCountryId },
+async function assertCountryExists(countryId) {
+  const country = await prisma.country.findUnique({
+    where: { id: countryId },
     select: { id: true, name: true, archived: true },
   });
 
-  if (!country) throw ApiError.badRequest(`No visa country exists with id ${visaCountryId}`);
+  if (!country) throw ApiError.badRequest(`No visa country exists with id ${countryId}`);
 
   return country;
 }
 
+/**
+ * `visaCountryId` is accepted as the create parameter for API stability (see the module header) —
+ * it is what the admin form has always sent, and it is a Country id now rather than a VisaCountry
+ * one without the caller needing to know that.
+ */
 async function create({
   visaCountryId,
   name,
@@ -406,12 +456,14 @@ async function create({
   requiredDocuments = [],
   processingSteps = [],
 }) {
-  await assertCountryExists(visaCountryId);
+  const countryId = visaCountryId;
+
+  await assertCountryExists(countryId);
 
   // Unique per country, not globally: "Tourist eVisa" is a perfectly normal name to reuse across
   // countries, but two of them under one country would be indistinguishable in the picker.
   const clash = await prisma.visaProduct.findFirst({
-    where: { visaCountryId, name: { equals: name, mode: 'insensitive' }, archived: false },
+    where: { countryId, name: { equals: name, mode: 'insensitive' }, archived: false },
     select: { id: true, name: true },
   });
 
@@ -421,7 +473,7 @@ async function create({
 
   const created = await prisma.visaProduct.create({
     data: {
-      visaCountryId,
+      countryId,
       name,
       category,
       processingDaysMin,
@@ -468,7 +520,7 @@ async function update(
 ) {
   const existing = await prisma.visaProduct.findUnique({
     where: { id },
-    select: { id: true, visaCountryId: true },
+    select: { id: true, countryId: true },
   });
 
   if (!existing) throw ApiError.notFound(`No visa product exists with id ${id}`);
@@ -476,7 +528,7 @@ async function update(
   if (name !== undefined) {
     const clash = await prisma.visaProduct.findFirst({
       where: {
-        visaCountryId: existing.visaCountryId,
+        countryId: existing.countryId,
         name: { equals: name, mode: 'insensitive' },
         archived: false,
         id: { not: id },

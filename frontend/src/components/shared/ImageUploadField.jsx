@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Icon, Input } from '../ui';
-import { apiGet, apiPost, ApiError } from '../../api/client';
+import { apiGet, apiPost, apiDelete, ApiError } from '../../api/client';
 
 /**
  * Picks an image and hands back a URL.
  *
  * Two modes, chosen by what the server says is configured:
  *
- *   uploads enabled   file picker -> signed upload straight to Cloudinary -> URL
+ *   uploads enabled   file picker -> signed upload straight to Cloudinary -> registered -> URL
  *   not configured    the plain URL box this replaces
  *
  * The fallback is the point. Credentials are optional, and an image field that stopped working the
@@ -36,10 +36,16 @@ function loadUploadConfig() {
   return configPromise;
 }
 
-function ImageUploadField({ label, value, onChange, purpose, hint, error }) {
+function ImageUploadField({ label, value, onChange, purpose, ownerType, ownerId, hint, error }) {
   const [uploadsEnabled, setUploadsEnabled] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  // The public_id of the file THIS field uploaded, if any.
+  //
+  // Only ever set from our own upload — never inferred from `value`. That is what makes it safe to
+  // delete on replace: a pasted third-party URL, or an image shared with another record, has no
+  // publicId here and so is never destroyed.
+  const [ownPublicId, setOwnPublicId] = useState(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -53,6 +59,20 @@ function ImageUploadField({ label, value, onChange, purpose, hint, error }) {
       cancelled = true;
     };
   }, []);
+
+  /** Removes the previous upload so replacing an image does not leave the old one billable. */
+  const discardPrevious = async () => {
+    if (!ownPublicId) return;
+
+    try {
+      await apiDelete(`/api/uploads/${ownPublicId}`);
+    } catch {
+      // Non-fatal: the new image is already saved, and a leftover file is a housekeeping problem,
+      // not a reason to fail the edit the admin just made.
+    } finally {
+      setOwnPublicId(null);
+    }
+  };
 
   const handleFile = async (file) => {
     if (!file) return;
@@ -68,6 +88,8 @@ function ImageUploadField({ label, value, onChange, purpose, hint, error }) {
 
     setUploading(true);
     setUploadError(null);
+    const previous = ownPublicId;
+
     try {
       const { upload } = await apiPost('/api/uploads/signature', { purpose });
 
@@ -87,7 +109,30 @@ function ImageUploadField({ label, value, onChange, purpose, hint, error }) {
         throw new Error(data?.error?.message || 'Cloudinary rejected the upload');
       }
 
+      // Record it before showing it: an unregistered file is one nothing can ever delete.
+      await apiPost('/api/uploads/register', {
+        publicId: data.public_id,
+        url: data.secure_url,
+        kind: 'IMAGE',
+        visibility: 'PUBLIC',
+        folder: upload.folder,
+        format: data.format,
+        bytes: data.bytes,
+        width: data.width,
+        height: data.height,
+        originalFilename: data.original_filename,
+        purpose,
+        ownerType,
+        ownerId,
+      });
+
+      setOwnPublicId(data.public_id);
       onChange(data.secure_url);
+
+      // Only after the replacement is safely in place.
+      if (previous) {
+        await apiDelete(`/api/uploads/${previous}`).catch(() => {});
+      }
     } catch (err) {
       setUploadError(
         err instanceof ApiError ? err.message : err.message || 'Upload failed. Try again, or paste a URL.'
@@ -99,12 +144,22 @@ function ImageUploadField({ label, value, onChange, purpose, hint, error }) {
     }
   };
 
+  const handleRemove = async () => {
+    await discardPrevious();
+    onChange('');
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <Input
         label={label}
         value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          // Typing over an uploaded URL detaches it from this field; the file stays in Cloudinary
+          // and can be found in the media list rather than being destroyed on a keystroke.
+          setOwnPublicId(null);
+          onChange(e.target.value);
+        }}
         error={error || uploadError}
         hint={
           error || uploadError
@@ -149,7 +204,7 @@ function ImageUploadField({ label, value, onChange, purpose, hint, error }) {
                 e.currentTarget.style.display = 'none';
               }}
             />
-            <Button type="button" variant="outline" size="sm" onClick={() => onChange('')}>
+            <Button type="button" variant="outline" size="sm" onClick={handleRemove}>
               <Icon name="x" size={13} />
               Remove
             </Button>

@@ -7,11 +7,20 @@ const destinationService = require('./destinationService');
 
 const DESTINATION_SUMMARY = { select: { id: true, name: true, archived: true } };
 
-async function create({ destinationId, name, category, description, images }) {
+async function create({ destinationId, name, category, description, images, starRating, roomType, mealPlan }) {
   await destinationService.assertActiveDestination(destinationId); // 400 if missing/archived
 
   return prisma.hotel.create({
-    data: { destinationId, name, category, description, images: images ?? [] },
+    data: {
+      destinationId,
+      name,
+      category,
+      description,
+      images: images ?? [],
+      starRating: starRating ?? null,
+      roomType: roomType ?? null,
+      mealPlan: mealPlan ?? null,
+    },
     include: { destination: DESTINATION_SUMMARY },
   });
 }
@@ -25,7 +34,7 @@ async function create({ destinationId, name, category, description, images }) {
  * still false. Archiving a destination never mutates its children, so restoring the
  * destination brings them all back exactly as they were.
  */
-async function list({ destinationId, includeArchived = false } = {}) {
+async function list({ destinationId, includeArchived = false, limit = 50, offset = 0 } = {}) {
   const where = {};
   if (destinationId) where.destinationId = destinationId;
 
@@ -34,11 +43,18 @@ async function list({ destinationId, includeArchived = false } = {}) {
     where.destination = { is: { archived: false } };
   }
 
-  return prisma.hotel.findMany({
-    where,
-    orderBy: { name: 'asc' },
-    include: { destination: DESTINATION_SUMMARY },
-  });
+  const [hotels, total] = await Promise.all([
+    prisma.hotel.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      include: { destination: DESTINATION_SUMMARY },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.hotel.count({ where }),
+  ]);
+
+  return { hotels, total, limit, offset };
 }
 
 /**

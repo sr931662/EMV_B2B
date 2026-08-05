@@ -8,11 +8,14 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const list = asyncHandler(async (req, res) => {
-  const { destinationId, includeArchived } = req.validatedQuery;
-  const hotels = await hotelService.list({ destinationId, includeArchived });
+  const { destinationId, includeArchived, limit, offset } = req.validatedQuery;
+  const { hotels, total } = await hotelService.list({ destinationId, includeArchived, limit, offset });
 
   res.status(200).json({
     count: hotels.length,
+    total,
+    limit,
+    offset,
     filters: { destinationId: destinationId ?? null, includeArchived },
     hotels,
   });

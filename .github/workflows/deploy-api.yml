@@ -41,7 +41,46 @@ permissions:
   contents: read
 
 jobs:
+  # Runs first and gates the deploy. No database and no AWS credentials are needed — the suite is
+  # deliberately pure, so a broken change is caught before anything is built or pushed rather than
+  # after it is already rolling out to the service.
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # `npm ci` rather than `npm install`: the lockfile is the point of running this in CI at all.
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      # Catches a schema edit that does not parse before it reaches a migration.
+      - name: Validate Prisma schema
+        working-directory: backend
+        run: npx prisma validate
+        env:
+          # validate only parses the schema, but it still insists on the variable being present.
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
+
+      - name: Run tests
+        working-directory: backend
+        run: npm test
+
+      # A frontend that does not compile must not reach a deploy either, even though it ships
+      # separately through Cloudflare Pages.
+      - name: Build frontend
+        working-directory: frontend
+        run: npm ci && npm run build
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
 
     steps:

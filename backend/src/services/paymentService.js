@@ -70,7 +70,7 @@ const QUEUE_INCLUDE = {
       applicationNumber: true,
       sellingPrice: true,
       markupAmount: true,
-      visaCountry: { select: { name: true } },
+      country: { select: { name: true } },
       partner: {
         select: {
           id: true,
@@ -136,7 +136,7 @@ function toQueueRow(payment) {
     markupAmount: parent?.markupAmount ?? null,
     amountDue: parent ? computeAmountDue(parent.sellingPrice, parent.markupAmount) : null,
     quoteStatus: quote?.status ?? null,
-    countryName: visaRequest?.visaCountry?.name ?? null,
+    countryName: visaRequest?.country?.name ?? null,
     applicationNumber: visaRequest?.applicationNumber ?? null,
     passengerCount: visaRequest?._count?.passengers ?? null,
     visaRequestStatus: visaRequest?.status ?? null,
@@ -408,7 +408,9 @@ async function submitForVisaRequest(visaRequestId, { transactionId, amount, note
 
   await afterCommit(
     async () => {
-      const { partner, visaCountry } = fullPayment.visaRequest;
+      // Renamed on the way out of the destructure: the relation is `country` since the contract
+      // step, and every email var below still reads `visaCountry.name`.
+      const { partner, country: visaCountry } = fullPayment.visaRequest;
       const companyName = partner.partnerProfile?.companyName ?? partner.email;
 
       // Passenger names + uploaded document names for the admin's ops email — not carried on
@@ -588,7 +590,7 @@ async function approve(id, adminRemarks, adminUser) {
           `Payment approved — booking confirmed for "${pkg.title}".`
         );
       } else if (updated.visaRequestId) {
-        const { partner, visaCountry, applicationNumber } = fullPayment.visaRequest;
+        const { partner, country: visaCountry, applicationNumber } = fullPayment.visaRequest;
         const companyName = partner.partnerProfile?.companyName ?? partner.email;
         const vars = { companyName, applicationNumber, countryName: visaCountry.name };
 

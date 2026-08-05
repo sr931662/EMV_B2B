@@ -103,6 +103,60 @@ function requireFile(fieldName) {
   };
 }
 
+const SPREADSHEET_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — generous for a data sheet, not a media file.
+const SPREADSHEET_EXTENSIONS = ['.xlsx'];
+const SPREADSHEET_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  // Browsers and OSes disagree on the MIME type for .xlsx often enough that the extension check
+  // above is what actually gates this — application/octet-stream is accepted here only because
+  // the extension already narrowed it, not as a MIME check on its own.
+  'application/octet-stream',
+];
+
+/**
+ * Single-file upload held in MEMORY rather than written to disk.
+ *
+ * Every other upload in this app (payment proof, visa documents) persists to disk because the file
+ * itself is the record — a bulk-import spreadsheet is not: it is parsed once, immediately, and then
+ * has no further reason to exist. Writing it to disk would mean tracking and cleaning up a file
+ * nothing ever reads again.
+ */
+function uploadSpreadsheet(fieldName) {
+  const handler = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: SPREADSHEET_MAX_BYTES, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+
+      if (!SPREADSHEET_EXTENSIONS.includes(ext)) {
+        return cb(ApiError.badRequest(`Unsupported file type "${ext || 'none'}". Expected .xlsx`));
+      }
+      if (!SPREADSHEET_MIME_TYPES.includes(file.mimetype)) {
+        return cb(ApiError.badRequest(`Unsupported content type "${file.mimetype}". Expected an Excel file`));
+      }
+
+      return cb(null, true);
+    },
+  }).single(fieldName);
+
+  return (req, res, next) => {
+    handler(req, res, (err) => {
+      if (!err) return next();
+
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return next(
+            ApiError.badRequest(`File is larger than the ${SPREADSHEET_MAX_BYTES / (1024 * 1024)}MB limit`)
+          );
+        }
+        return next(ApiError.badRequest(`Upload failed: ${err.message}`));
+      }
+
+      return next(err); // already an ApiError from fileFilter
+    });
+  };
+}
+
 /** Relative-to-backend-root path for storing on the row (never an absolute path). */
 function relativeUploadPath(file, relativeDir) {
   return path.join(relativeDir, path.basename(file.path)).split(path.sep).join('/');
@@ -110,6 +164,7 @@ function relativeUploadPath(file, relativeDir) {
 
 module.exports = {
   uploadSingle,
+  uploadSpreadsheet,
   requireFile,
   relativeUploadPath,
   MAX_BYTES,

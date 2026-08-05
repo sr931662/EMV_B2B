@@ -7,6 +7,7 @@ import {
   Card,
   EmptyState,
   Icon,
+  Pagination,
   PageHeader,
   Skeleton,
   Table,
@@ -23,6 +24,9 @@ import {
   formatMaxStay,
   describeFeasibility,
 } from '../../lib/visaProducts';
+
+const PRODUCTS_PAGE_SIZE = 24;
+const REQUESTS_PAGE_SIZE = 50;
 
 // Filter state lives in the URL so a filtered marketplace is a shareable link and the back button
 // walks through filter changes. Empty string means "not filtering on this".
@@ -56,6 +60,14 @@ function buildQuery(filters) {
   if (filters.travelDate && filters.onlyFeasible) query.set('onlyFeasible', 'true');
 
   return query;
+}
+
+/** The URL carries filters only, not the page — a filter change always lands back on page 1. */
+function buildProductsQuery(filters, page) {
+  const query = buildQuery(filters);
+  query.set('limit', String(PRODUCTS_PAGE_SIZE));
+  query.set('offset', String((page - 1) * PRODUCTS_PAGE_SIZE));
+  return query.toString();
 }
 
 function ProductCard({ product, travelDate }) {
@@ -194,21 +206,33 @@ function VisaServicesPage() {
   const filters = useMemo(() => filtersFromSearchParams(searchParams), [searchParams]);
 
   const [products, setProducts] = useState([]);
+  const [productsTotal, setProductsTotal] = useState(0);
+  const [productsPage, setProductsPage] = useState(1);
   const [requests, setRequests] = useState([]);
+  const [requestsTotal, setRequestsTotal] = useState(0);
+  const [requestsPage, setRequestsPage] = useState(1);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [error, setError] = useState(null);
 
   const queryString = buildQuery(filters).toString();
 
+  // A filter change can leave `productsPage` pointing past the new, narrower result set.
+  useEffect(() => {
+    setProductsPage(1);
+  }, [queryString]);
+
   useEffect(() => {
     let cancelled = false;
 
     setLoadingProducts(true);
     setError(null);
-    apiGet(`/api/visa-products${queryString ? `?${queryString}` : ''}`)
+    apiGet(`/api/visa-products?${buildProductsQuery(filters, productsPage)}`)
       .then((res) => {
-        if (!cancelled) setProducts(res.products);
+        if (!cancelled) {
+          setProducts(res.products);
+          setProductsTotal(res.total);
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load visa products.');
@@ -220,16 +244,25 @@ function VisaServicesPage() {
     return () => {
       cancelled = true;
     };
-  }, [queryString]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryString, productsPage]);
 
   // Separate from the products request: the partner's own request list does not change when they
   // move a filter, so refetching it on every keystroke would be wasted work.
   useEffect(() => {
     let cancelled = false;
 
-    apiGet('/api/visa-requests')
+    const params = new URLSearchParams({
+      limit: String(REQUESTS_PAGE_SIZE),
+      offset: String((requestsPage - 1) * REQUESTS_PAGE_SIZE),
+    });
+
+    apiGet(`/api/visa-requests?${params.toString()}`)
       .then((res) => {
-        if (!cancelled) setRequests(res.visaRequests);
+        if (!cancelled) {
+          setRequests(res.visaRequests);
+          setRequestsTotal(res.total);
+        }
       })
       .catch(() => {
         // Non-fatal: the marketplace above is still usable if this list fails.
@@ -241,7 +274,7 @@ function VisaServicesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [requestsPage]);
 
   const handleFilterChange = useCallback(
     (next) => {
@@ -274,7 +307,7 @@ function VisaServicesPage() {
         value={filters}
         onChange={handleFilterChange}
         onReset={handleReset}
-        resultCount={products.length}
+        resultCount={productsTotal}
         loading={loadingProducts}
       />
 
@@ -299,11 +332,22 @@ function VisaServicesPage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {products.map((p) => (
-            <ProductCard key={p.id} product={p} travelDate={filters.travelDate} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {products.map((p) => (
+              <ProductCard key={p.id} product={p} travelDate={filters.travelDate} />
+            ))}
+          </div>
+          <Card bodyClassName="p-0">
+            <Pagination
+              page={productsPage}
+              pageSize={PRODUCTS_PAGE_SIZE}
+              total={productsTotal}
+              onPageChange={setProductsPage}
+              loading={loadingProducts}
+            />
+          </Card>
+        </>
       )}
 
       <div>
@@ -368,6 +412,13 @@ function VisaServicesPage() {
                 ))}
               </Table.Body>
             </Table>
+            <Pagination
+              page={requestsPage}
+              pageSize={REQUESTS_PAGE_SIZE}
+              total={requestsTotal}
+              onPageChange={setRequestsPage}
+              loading={loadingRequests}
+            />
           </Card>
         )}
       </div>

@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { withBrandGuard } = require('./brandGuard');
+const { paginationFields } = require('./paginationSchema');
 
 // Decimal(12,2) in the schema -> max 9,999,999,999.99
 const MAX_PRICE = 9999999999.99;
@@ -44,6 +45,27 @@ const hotelIdsField = z
 
 const idParamSchema = z.object({ id: uuidField('id') });
 
+/**
+ * Phase 6: what the package draws from the library.
+ *
+ * These are LINKS, not copies, unlike dayTemplateIds and hotelIds above. They record what the
+ * package is about — for grouping, filtering and reporting — rather than what the customer was sold.
+ * The prose a customer reads is still `inclusions`/`exclusions`, which the builder composes from
+ * these items and stores as text, so editing the vocabulary later cannot rewrite an issued quote.
+ */
+const libraryLinkFields = {
+  cancellationPolicyId: uuidField('cancellationPolicyId').nullable().optional(),
+  faqIds: z.array(uuidField('faqIds entry')).max(50, 'faqIds may have at most 50 entries').optional(),
+  inclusionIds: z
+    .array(uuidField('inclusionIds entry'))
+    .max(80, 'inclusionIds may have at most 80 entries')
+    .optional(),
+  exclusionIds: z
+    .array(uuidField('exclusionIds entry'))
+    .max(80, 'exclusionIds may have at most 80 entries')
+    .optional(),
+};
+
 const createPackageSchema = z
   .object({
     destinationId: uuidField('destinationId'),
@@ -61,6 +83,7 @@ const createPackageSchema = z
     tags: stringArray('tags', 60, 20).optional().default([]),
     dayTemplateIds: dayTemplateIdsField,
     hotelIds: hotelIdsField.optional().default([]),
+    ...libraryLinkFields,
   })
   .strict();
 
@@ -78,6 +101,7 @@ const updatePackageSchema = z
     tags: stringArray('tags', 60, 20).optional(),
     dayTemplateIds: dayTemplateIdsField.optional(),
     hotelIds: hotelIdsField.optional(),
+    ...libraryLinkFields,
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, {
@@ -97,6 +121,7 @@ const listPackagesSchema = z
       .enum(['true', 'false'], { error: "includeArchived must be 'true' or 'false'" })
       .optional()
       .transform((v) => v === 'true'),
+    ...paginationFields,
   })
   .strict()
   .refine((q) => q.minPrice === undefined || q.maxPrice === undefined || q.minPrice <= q.maxPrice, {

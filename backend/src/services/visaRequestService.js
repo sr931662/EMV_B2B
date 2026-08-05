@@ -36,7 +36,10 @@ const EDITABLE_STATUSES = ['APPLICATION_SUBMITTED'];
 const NON_ARCHIVABLE_STATUSES = ['PAYMENT_APPROVED', 'VISA_PROCESSING_STARTED', 'COMPLETED'];
 
 const REQUEST_DETAIL_INCLUDE = {
-  visaCountry: { select: { id: true, name: true, archived: true, baseFee: true } },
+  // Selected under its real relation name (`country`, pointing at the merged Country table since
+  // the contract-step migration); presentVisaRequest() below re-keys it to `visaCountry` in every
+  // response, so the API shape — and the frontend built against it — is unchanged.
+  country: { select: { id: true, name: true, archived: true, baseFee: true } },
   // Null on requests created before visa products existed — every consumer must tolerate that.
   visaProduct: {
     select: {
@@ -68,6 +71,22 @@ const REQUEST_DETAIL_INCLUDE = {
   },
   payments: { where: { archived: false }, orderBy: { createdAt: 'desc' } },
 };
+
+/**
+ * Renames the `country` relation to `visaCountry` on the way out.
+ *
+ * The contract-step migration merged VisaCountry into Country and repointed this request's FK
+ * directly at it, but every existing reader — this file's own pricing math below, the partner and
+ * admin request-detail pages — was built reading `visaRequest.visaCountry.name`. Renaming the key
+ * here, once, keeps all of that working without hunting down every call site.
+ */
+function presentVisaRequest(row) {
+  if (!row) return row;
+
+  const { country, ...rest } = row;
+
+  return { ...rest, visaCountry: country };
+}
 
 /** "VISA-<time>-<random>" — readable enough to quote over the phone, unique enough in practice. */
 function generateApplicationNumber() {
@@ -150,7 +169,7 @@ async function getForUser(id, user, { include = REQUEST_DETAIL_INCLUDE } = {}) {
   const denied = !visaRequest || (user.role !== 'admin' && visaRequest.partnerId !== user.id);
   if (denied) throw ApiError.notFound(`No visa request exists with id ${id}`);
 
-  return visaRequest;
+  return presentVisaRequest(visaRequest);
 }
 
 /**
@@ -188,6 +207,18 @@ async function getRequiredDocSnapshot(visaRequestId) {
   return prisma.visaRequestRequiredDoc.findMany({
     where: { visaRequestId, archived: false },
     orderBy: { documentName: 'asc' },
+    // The library's guidance rides along with the frozen line. A specimen and a
+    // "valid 6 months beyond travel" note are maintained once and shown at the moment they are
+    // needed — which is what turns a rejected upload into an upload that was right first time.
+    //
+    // Note this is the one part read LIVE: if an admin improves the guidance, everyone still
+    // waiting to upload benefits. The requirement itself — the name and whether it is mandatory —
+    // stays frozen.
+    include: {
+      documentType: {
+        select: { id: true, name: true, sampleImageUrl: true, requirementNotes: true, subject: true },
+      },
+    },
   });
 }
 
@@ -250,7 +281,7 @@ async function getDetailForUser(id, user) {
  * @unique, so a retry loop handles the theoretical case cleanly instead of surfacing a raw P2002.
  */
 async function createRequestWithRetry(
-  { visaCountryId, visaProductId },
+  { countryId, visaProductId },
   visaType,
   passengers,
   partnerId,
@@ -264,7 +295,7 @@ async function createRequestWithRetry(
       const request = await tx.visaRequest.create({
         data: {
           partnerId,
-          visaCountryId,
+          countryId,
           visaProductId,
           visaType,
           applicationNumber,
@@ -305,6 +336,11 @@ async function createRequestWithRetry(
           visaRequestId: request.id,
           documentName: doc.documentName,
           isMandatory: doc.isMandatory,
+          // Carried across with the name, not instead of it. The NAME is the frozen promise — what
+          // this partner was told to produce, which must not change if the library is later
+          // reworded (locked rule 2). The TYPE is a live reference, and it is what lets the upload
+          // screen show the specimen and the requirement notes rather than just a label.
+          documentTypeId: doc.documentTypeId ?? null,
         });
       }
 
@@ -322,7 +358,7 @@ async function createRequestWithRetry(
 
     if (isApplicationNumberClash && attempt < 5) {
       return createRequestWithRetry(
-        { visaCountryId, visaProductId },
+        { countryId, visaProductId },
         visaType,
         passengers,
         partnerId,
@@ -358,7 +394,7 @@ async function create({ visaProductId, visaType, passengers, markupAmount = 0 },
   });
 
   const created = await createRequestWithRetry(
-    { visaCountryId: product.visaCountryId, visaProductId },
+    { countryId: product.countryId, visaProductId },
     visaType,
     passengers,
     user.id,
@@ -376,7 +412,7 @@ async function create({ visaProductId, visaType, passengers, markupAmount = 0 },
 }
 
 async function list(filters, user) {
-  const { partnerId, status, includeArchived = false } = filters;
+  const { partnerId, status, includeArchived = false, limit = 50, offset = 0 } = filters;
 
   const where = {};
   if (!includeArchived) where.archived = false;
@@ -388,41 +424,51 @@ async function list(filters, user) {
     where.partnerId = user.id;
   }
 
-  const requests = await prisma.visaRequest.findMany({
-    where,
-    select: {
-      id: true,
-      applicationNumber: true,
-      status: true,
-      archived: true,
-      createdAt: true,
-      updatedAt: true,
-      sellingPrice: true,
-      visaCountry: { select: { id: true, name: true } },
-      visaProduct: { select: { id: true, name: true, category: true } },
-      partner: {
-        select: { id: true, email: true, partnerProfile: { select: { companyName: true } } },
+  const [requests, total] = await Promise.all([
+    prisma.visaRequest.findMany({
+      where,
+      select: {
+        id: true,
+        applicationNumber: true,
+        status: true,
+        archived: true,
+        createdAt: true,
+        updatedAt: true,
+        sellingPrice: true,
+        country: { select: { id: true, name: true } },
+        visaProduct: { select: { id: true, name: true, category: true } },
+        partner: {
+          select: { id: true, email: true, partnerProfile: { select: { companyName: true } } },
+        },
+        _count: { select: { passengers: { where: { archived: false } } } },
       },
-      _count: { select: { passengers: { where: { archived: false } } } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.visaRequest.count({ where }),
+  ]);
 
-  return requests.map((r) => ({
-    id: r.id,
-    applicationNumber: r.applicationNumber,
-    status: r.status,
-    archived: r.archived,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-    sellingPrice: r.sellingPrice,
-    countryName: r.visaCountry.name,
-    // Null for requests that predate visa products.
-    productName: r.visaProduct?.name ?? null,
-    visaCategory: r.visaProduct?.category ?? null,
-    agencyName: r.partner.partnerProfile?.companyName ?? null,
-    passengerCount: r._count.passengers,
-  }));
+  return {
+    total,
+    limit,
+    offset,
+    requests: requests.map((r) => ({
+      id: r.id,
+      applicationNumber: r.applicationNumber,
+      status: r.status,
+      archived: r.archived,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      sellingPrice: r.sellingPrice,
+      countryName: r.country.name,
+      // Null for requests that predate visa products.
+      productName: r.visaProduct?.name ?? null,
+      visaCategory: r.visaProduct?.category ?? null,
+      agencyName: r.partner.partnerProfile?.companyName ?? null,
+      passengerCount: r._count.passengers,
+    })),
+  };
 }
 
 async function getById(id, user) {
@@ -553,9 +599,9 @@ async function uploadDocument(visaRequestId, passengerId, documentName, file, us
   }
 
   const requiredDocuments = await getRequiredDocSnapshot(visaRequestId);
-  const recognized = requiredDocuments.some((d) => d.documentName === documentName);
+  const requirement = requiredDocuments.find((d) => d.documentName === documentName);
 
-  if (!recognized) {
+  if (!requirement) {
     const known = requiredDocuments.map((d) => d.documentName).join(', ') || '(none configured)';
     throw ApiError.badRequest(
       `"${documentName}" is not a recognized document for this request. Recognized: ${known}`
@@ -575,7 +621,15 @@ async function uploadDocument(visaRequestId, passengerId, documentName, file, us
       data: { archived: true },
     });
     await tx.visaDocumentUpload.create({
-      data: { visaPassengerId: passengerId, documentName, filePath: relativePath },
+      data: {
+        visaPassengerId: passengerId,
+        documentName,
+        filePath: relativePath,
+        // Taken from the request's own frozen checklist line, not looked up by name again. The file
+        // now knows WHAT it is, so "which passport scans are still outstanding" is a query rather
+        // than a string comparison that a reworded checklist would break.
+        documentTypeId: requirement.documentTypeId ?? null,
+      },
     });
   });
 

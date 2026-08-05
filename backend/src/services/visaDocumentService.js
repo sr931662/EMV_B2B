@@ -15,7 +15,7 @@ const visaProductService = require('./visaProductService');
 async function assertProduct(productId) {
   const product = await prisma.visaProduct.findUnique({
     where: { id: productId },
-    select: { id: true, name: true, archived: true, visaCountry: { select: { archived: true } } },
+    select: { id: true, name: true, archived: true, country: { select: { archived: true } } },
   });
 
   if (!product) throw ApiError.badRequest(`No visa product exists with id ${productId}`);
@@ -46,7 +46,7 @@ async function list(productId, { includeArchived = false } = {}) {
 
   if (!includeArchived) {
     where.archived = false;
-    where.visaProduct = { is: { archived: false, visaCountry: { is: { archived: false } } } };
+    where.visaProduct = { is: { archived: false, country: { is: { archived: false } } } };
   }
 
   return prisma.visaRequiredDocument.findMany({ where, orderBy: { documentName: 'asc' } });

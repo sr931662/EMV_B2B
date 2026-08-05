@@ -37,6 +37,11 @@ RUN npx prisma generate
 
 # Drop devDependencies now that the client exists. `prune` leaves the generated client alone —
 # node_modules/.prisma is build output, not a package, and @prisma/client is a production dep.
+#
+# The `prisma` CLI is a production dependency on purpose, so it survives this prune: the entrypoint
+# runs `prisma migrate deploy` at container start, and pruning the CLI away would make every task
+# fail to boot. It costs a few MB in the image and removes a whole class of "someone forgot to run
+# migrations" outage.
 RUN npm prune --omit=dev
 
 # -----------------------------------------------------------------------------
@@ -60,6 +65,11 @@ COPY --chown=node:node --from=deps /app/prisma ./prisma
 COPY --chown=node:node package.json ./
 COPY --chown=node:node src ./src
 
+# The entrypoint runs migrations before the server starts. chmod because a checkout on Windows
+# carries no executable bit, so relying on the host's file mode would fail only in CI.
+COPY --chown=node:node docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 # Upload target. NOTE: this lives on the container's ephemeral filesystem, so anything written
 # here is DESTROYED when the task stops — every deploy, scale-in or crash. That is a deliberate,
 # acknowledged decision for this deployment (see infra/DEPLOYMENT.md § Ephemeral storage); it is
@@ -77,6 +87,8 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# `node src/index.js` directly, not `npm start`: npm would sit between ECS and node as PID 1 and
-# swallow SIGTERM, defeating the graceful shutdown handler in src/index.js.
-CMD ["node", "src/index.js"]
+# The entrypoint applies pending migrations before starting the server, so a task can never come
+# up against a database whose schema its code does not match. It `exec`s node at the end, so node
+# still becomes PID 1 and receives SIGTERM directly — the graceful shutdown in src/index.js
+# depends on that.
+CMD ["./docker-entrypoint.sh"]

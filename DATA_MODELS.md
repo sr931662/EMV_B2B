@@ -46,7 +46,129 @@ step-by-step build history.
 - `archived`, `createdAt`, `updatedAt`
 - Indexes: `userId` (via unique), `archived`
 
+### Reusable content (Phase 4)
+
+**`DocumentType`** — a kind of document, named once. `VisaRequiredDocument.documentName` was free
+text, so the "documents required" filter could never work on it and no two products agreed on a
+name. `VisaRequiredDocument.documentTypeId` now points here; `documentName` survives as the authored
+label ("Passport (first and last page)" where the type is simply "Passport").
+
+**`FaqItem`** — a question and answer, attached to a country, destination, package or visa product
+through `EntityLink` rather than a foreign key per owner.
+
+**`NoteBlock`** — company-wide prose (terms, scope of services, general notes). This is the former
+`ContentBlock`, extended rather than replaced: the model is renamed in code and `@@map("ContentBlock")`
+keeps the physical table, because renaming a table in the same deploy that adds its replacement is
+what 500s a container mid-rollout. `key` maps onto the original `name` column. The rename belongs to
+a contract step. `noteBlockService.missingRequired()` reports blocks a voucher needs and nobody has
+written — previously a completely silent failure, which is why every voucher so far has printed with
+no terms and conditions at all.
+
+**`CancellationPolicy`** + **`CancellationTier`** — a policy as bands rather than a paragraph. Bands
+are `[min, max)` on days before travel, the outermost one open-ended. Written as prose a policy can
+only be printed; as tiers `cancellationService.computeCharge` can also answer "what would this cost
+to cancel today", which is the question a partner actually asks. `validateTiers` reports gaps and
+overlaps, which are otherwise invisible until someone cancels.
+
+**`InsurancePlan`** — the catalogue entry a `QuoteInsurance` row was sold from. Age bands and trip
+length are columns, not prose, because they are where claims are actually refused.
+
+### Country/VisaCountry contract step
+
+`VisaCountry` is gone. Migration `20260805170000_visa_country_contract` merged it into `Country`
+for good: `Country` gained `baseFee`; `VisaProduct.countryId` (added nullable in Phase 3) became
+the sole, required link and `visaCountryId` was dropped; `VisaRequest.visaCountryId` was **renamed**
+to `countryId` and repointed at `Country` (a rename, not a backfill — `VisaCountry.id` and the
+matching `Country.id` were identical by construction since Phase 3, so no row's value had to
+change); `Destination.visaCountryId` was dropped outright, superseded by `countryId`.
+
+This ran as ONE migration rather than its own expand/migrate/contract sequence because nothing had
+been deployed yet — the whole reason that split exists is to avoid a window where old code, still
+running, reads a column new code has already dropped. With no old code running anywhere, that
+window doesn't exist.
+
+**The API shape at the edges is unchanged on purpose.** `visaCountryService.js` and
+`visaProductService.js`'s `present()` still return a `visaCountry` object with the pre-merge field
+names (`coverImageUrl`, `aboutCountry`, `arrivalInfo`) — mapped from `Country`'s real columns
+(`heroImageUrl`, `description`, `travelNotes`) in one place at the service boundary. `create()`
+still accepts a `visaCountryId` parameter. Every existing route, controller, and the partner-facing
+marketplace pages (`VisaServicesPage`, `VisaProductDetailPage`) therefore needed **zero** changes —
+only the six backend files that queried the old `visaCountry` Prisma relation by name
+(`visaRequestService`, `quoteSnapshotService`, `itineraryService`, `paymentService`,
+`adminAgencyService`, `visaDocumentService`) needed their `select`/`include` blocks repointed at
+`country`.
+
+### Suppliers and rates (Phase 5)
+
+**`Vendor`** — someone the business buys from. Contact details, tax numbers and payment terms belong
+to the company; what varies per hotel lives on `HotelVendor`.
+
+**`HotelVendor`** — one supplier's contract for one hotel: contract dates, allocation, release days,
+cancellation terms, preference. This is the row that makes "a hotel belongs to several vendors" true.
+Unique on `(hotelId, vendorId, contractRef)` so a supplier may hold two contracts on one property and
+a double-save updates rather than duplicating.
+
+**`HotelRate`** — one line of a rate card. A number is only a price in the company of its validity
+dates, basis, room type, meal plan, occupancy and currency; every one of those has caused a mispriced
+package somewhere. Validity is **inclusive at both ends**. Overlapping ranges are permitted and
+resolved by `rateService`, which prefers the **narrower** range — a promotional week must beat the
+season it sits inside, which is why someone loaded it.
+
+**`Activity`** + **`ActivityRate`** — a thing a traveller does, and its several prices (adult, child,
+seat-in-coach, private, each for its own season). `DayTemplateEvent.activityId` is a real FK;
+`PackageDayEvent.sourceActivityId` deliberately is **not**, because a package day is a frozen copy
+(locked rule 2) and a real relation would let archiving an activity be refused by a package that once
+included it.
+
+`rateService.priceStay` prices **night by night** — a stay checking in on the 1st and out on the 4th
+is three nights, and one that straddles a season change has no single nightly rate. It refuses rather
+than guesses on two counts: nights no published rate covers (naming the dates), and a stay drawing on
+two currencies (converting needs an exchange rate and a date, which is a business decision).
+
+### How a package meets the library (Phase 6)
+
+Two different relationships, and the difference is what each thing IS.
+
+**Copied** — `PackageDay`, `PackageHotel`. What the customer was sold. Frozen at build time (locked
+rule 2) and never re-read from the library.
+
+**Referenced** — `Package.cancellationPolicyId`. Live right up until a quote is generated, at which
+point `quoteSnapshotService` freezes it with everything else. That is the difference between "our
+terms changed" and "your terms changed after you booked".
+
+**Linked** — FAQs and inclusion/exclusion vocabulary, through `EntityLink`. Statements about what a
+package is *about*, used to group, filter and report. Nothing a customer was told hangs off them, so
+there is nothing to freeze. The prose a customer reads still lives in `Package.inclusions` /
+`Package.exclusions`, which the builder **composes** from the linked vocabulary and stores as text —
+so editing an inclusion later changes future packages, never an issued quote.
+
+`QuoteSnapshot.schemaVersion` is **2**: it now also captures `cancellationPolicy` and `terms`.
+Version 1 documents lack both, and the voucher reports `cancellation.captured: false` rather than
+`policy: null` — the two are not the same, and conflating them would tell a customer their trip is
+free to cancel.
+
 ### Reference data / intern-maintained library
+
+**`Country`** (Phase 3) — the single row for a country, and the top of the geography hierarchy.
+- `id`, `name` (unique), `slug` (unique), `isoAlpha2?`/`isoAlpha3?` (both unique), `dialCode?`, `shortName?`
+- `description?`, `flagImageUrl?`, `heroImageUrl?`
+- `currencyCode?` (FK → `Currency`) — the default currency for quoting there, not a constraint
+- `languages[]`, `timeZones[]`, `bestMonths[]` (month numbers 1–12, so "where in March" is a query)
+- `emergencyContacts?`, `embassyDetails?`, `weatherSummary?`, `travelNotes?`
+- `searchText` (maintained haystack, trigram-indexed), `archived`, `createdAt`, `updatedAt`
+- Relations: `destinations[]`, `visaProducts[]`, `currency?`
+
+  Replaces two overlapping tables. `Destination` used to hold countries *and* cities in one flat
+  list, and `VisaCountry` held countries a second time — the two were matched by comparing name
+  strings, so "UAE" in one and "United Arab Emirates" in the other silently produced no visa
+  information and no error.
+
+  **This is an expand step, not a cutover.** `VisaCountry` still exists and still works;
+  `Country.id` is deliberately the same value as the `VisaCountry` it was created from, and
+  `countryService.mirrorVisaCountry` keeps the two in step on every visa-country write. The
+  contract step — dropping `VisaCountry` and `VisaProduct.visaCountryId`, and making
+  `Destination.countryId` required — happens only once every consumer reads through `Country`.
+  Nothing is dropped in the same migration that adds its replacement.
 
 **`Destination`** — the top-level geography every library entry and package hangs off.
 - `id`, `name` (unique), `archived`, timestamps

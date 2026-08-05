@@ -1,6 +1,8 @@
 const fs = require('fs');
 
 const ApiError = require('../utils/ApiError');
+// Same predicate the retry wrapper uses, so "worth retrying" means one thing in this codebase.
+const { isRetryable } = require('../utils/prisma');
 
 // Mounted last. Every thrown error lands here and leaves as clean JSON: { error: message }.
 // Validation failures additionally carry `details` naming each bad field.
@@ -33,16 +35,28 @@ function errorHandler(err, req, res, next) {
   } else if (err.type === 'entity.parse.failed') {
     statusCode = 400;
     message = 'Malformed JSON body';
+  } else if (isRetryable(err)) {
+    // The database could not be reached, and utils/prisma has already retried. 503 rather than 500
+    // because nothing is broken — the request should be tried again — and because a load balancer,
+    // a browser and a person all read the two differently.
+    //
+    // Usually this is a Neon compute that was suspended and did not wake in time. Saying so beats
+    // "Internal server error", which sends whoever reads it hunting for a bug that is not there.
+    statusCode = 503;
+    message = 'The database is temporarily unavailable. Please try again in a moment.';
   }
 
   // Never leak internals on a 500 — log the real error, return something generic.
   if (statusCode >= 500) {
     console.error('[error]', err);
-    message = 'Internal server error';
+    // 503 keeps its own wording: it is a true statement about a transient condition, not an
+    // internal detail, and the caller can act on it.
+    if (statusCode !== 503) message = 'Internal server error';
   }
 
   const body = { error: message };
   if (details) body.details = details;
+  if (statusCode === 503) body.retryable = true;
 
   res.status(statusCode).json(body);
 }
