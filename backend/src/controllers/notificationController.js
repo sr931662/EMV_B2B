@@ -2,10 +2,10 @@ const asyncHandler = require('../utils/asyncHandler');
 const notificationService = require('../services/notificationService');
 
 const list = asyncHandler(async (req, res) => {
-  const { unreadOnly } = req.validatedQuery;
-  const notifications = await notificationService.list(req.user, { unreadOnly });
+  const { unreadOnly, limit, offset } = req.validatedQuery;
+  const { notifications, total } = await notificationService.list(req.user, { unreadOnly, limit, offset });
 
-  res.status(200).json({ count: notifications.length, unreadOnly, notifications });
+  res.status(200).json({ count: notifications.length, total, limit, offset, unreadOnly, notifications });
 });
 
 const unreadCount = asyncHandler(async (req, res) => {

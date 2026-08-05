@@ -7,6 +7,7 @@ import {
   EmptyState,
   Icon,
   Input,
+  Pagination,
   PageHeader,
   Select,
   Skeleton,
@@ -14,6 +15,8 @@ import {
 } from '../../components/ui';
 import { apiGet, ApiError } from '../../api/client';
 import { formatDate } from '../../lib/format';
+
+const PAGE_SIZE = 50;
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -28,21 +31,27 @@ function agencyStatusBadge(agency) {
   return <Badge variant="success">Active</Badge>;
 }
 
-function buildQuery({ search, status }) {
+function buildQuery({ search, status }, page) {
   const params = new URLSearchParams();
   if (search.trim()) params.set('search', search.trim());
   if (status) params.set('status', status);
-  const qs = params.toString();
-  return qs ? `?${qs}` : '';
+  params.set('limit', String(PAGE_SIZE));
+  params.set('offset', String((page - 1) * PAGE_SIZE));
+  return `?${params.toString()}`;
 }
 
 function AgenciesListPage() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState({ search: '', status: '' });
   const [agencies, setAgencies] = useState([]);
-  const [count, setCount] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,11 +59,11 @@ function AgenciesListPage() {
     const handle = setTimeout(() => {
       setLoading(true);
       setError(null);
-      apiGet(`/api/admin/agencies${buildQuery(filters)}`)
+      apiGet(`/api/admin/agencies${buildQuery(filters, page)}`)
         .then((res) => {
           if (cancelled) return;
           setAgencies(res.agencies);
-          setCount(res.count);
+          setTotal(res.total);
         })
         .catch((err) => {
           if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load agencies.');
@@ -68,7 +77,7 @@ function AgenciesListPage() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [filters]);
+  }, [filters, page]);
 
   const hasFilters = filters.search.trim() !== '' || filters.status !== '';
 
@@ -103,8 +112,8 @@ function AgenciesListPage() {
           'Loading…'
         ) : (
           <>
-            <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> agenc
-            {count === 1 ? 'y' : 'ies'}
+            <span className="font-semibold text-neutral-900 tabular-nums">{total}</span> agenc
+            {total === 1 ? 'y' : 'ies'}
           </>
         )}
       </p>
@@ -161,6 +170,7 @@ function AgenciesListPage() {
               ))}
             </Table.Body>
           </Table>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
         </Card>
       )}
     </div>

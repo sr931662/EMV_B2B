@@ -2,9 +2,9 @@ const asyncHandler = require('../utils/asyncHandler');
 const adminAgencyService = require('../services/adminAgencyService');
 
 const list = asyncHandler(async (req, res) => {
-  const agencies = await adminAgencyService.list(req.validatedQuery);
+  const { agencies, total, limit, offset } = await adminAgencyService.list(req.validatedQuery);
 
-  res.status(200).json({ count: agencies.length, filters: req.validatedQuery, agencies });
+  res.status(200).json({ count: agencies.length, total, limit, offset, filters: req.validatedQuery, agencies });
 });
 
 const getOne = asyncHandler(async (req, res) => {

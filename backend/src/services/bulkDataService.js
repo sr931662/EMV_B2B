@@ -5,26 +5,34 @@ const ApiError = require('../utils/ApiError');
 const registry = require('./libraryRegistry');
 const libraryService = require('./libraryService');
 const auditService = require('./auditService');
+const destinationService = require('./destinationService');
+const hotelService = require('./hotelService');
+const dayTemplateService = require('./dayTemplateService');
 
 /**
- * Excel bulk import/export for the Library's generic (registry-driven) entities.
+ * Excel bulk import/export for the Library.
  *
- * Deliberately layered ON TOP of libraryService.create/update rather than writing Prisma directly.
- * That is not a style choice — it is what keeps a bulk import inside the exact same boundary as
- * every other write in this system: the field whitelist (a column this file does not know about is
- * simply not writable), the commercial-field strip (a data_feeder's spreadsheet cannot smuggle in a
- * price any more than the form can), and the audit trail (a bulk-imported row has the same CREATE/
- * UPDATE history as one typed in by hand). A bespoke bulk-write path that bypassed those would
- * reopen, in one file, every boundary the rest of this service maintains — and pricing data is
- * exactly the kind of column format a spreadsheet macro reaches for.
+ * The registry-driven entities (vocabulary, currency, country, document types, FAQs, note blocks,
+ * cancellation policies, insurance plans, vendors, activities) go through `exportEntity`/
+ * `importEntity`, layered ON TOP of libraryService.create/update rather than writing Prisma
+ * directly. That is not a style choice — it is what keeps a bulk import inside the exact same
+ * boundary as every other write in this system: the field whitelist (a column this file does not
+ * know about is simply not writable), the commercial-field strip (a data_feeder's spreadsheet
+ * cannot smuggle in a price any more than the form can), and the audit trail (a bulk-imported row
+ * has the same CREATE/UPDATE history as one typed in by hand).
  *
- * Scope is deliberately the registry's generic entities (vocabulary, currency, country, document
- * types, FAQs, note blocks, cancellation policies, insurance plans, vendors, activities) — not
- * destinations, hotels or day templates, which carry images and structured content a spreadsheet
- * cell cannot represent, and not packages or visa products, which are built through a decision
- * process (itinerary, checklist) rather than a row of columns. Hotel RATES are the one exception —
- * see importHotelRates/exportHotelRates below — because a rate sheet is what suppliers actually
- * send, in Excel, already.
+ * Destinations, hotels and day templates are NOT registry-generic — each has its own dedicated
+ * screen backed by a dedicated service (destinationService/hotelService/dayTemplateService) that
+ * carries real business logic the generic path does not know about: case-insensitive dedup,
+ * auto-restore of an archived row with the same name, country-name resolution and auto-creation
+ * for destinations, and the active-parent guard for hotels/day templates. Routing their bulk
+ * import through the generic `libraryService.create` (a raw Prisma write) would silently skip all
+ * of that. So each gets its own bespoke export/import pair below that calls the real service
+ * functions — the same shape as importHotelRates already does for rate cards, extended to the
+ * entity's own fields instead of a child collection. Packages and visa products stay out of bulk
+ * import entirely — they are built through a decision process (itinerary, pricing, checklist), not
+ * a row of columns, and the risk of a bad spreadsheet corrupting wholesale pricing or itinerary
+ * data is not worth the convenience.
  */
 
 // ---------------------------------------------------------------------------
@@ -653,10 +661,486 @@ async function importHotelRates(hotelId, buffer, { user, reason } = {}) {
   return { created: finalRows.length, updated: 0, skipped: 0, errors: [], applied: true };
 }
 
+// ---------------------------------------------------------------------------
+// Destinations — dedicated service, not registry-generic. See the file header for why.
+// ---------------------------------------------------------------------------
+
+const DESTINATION_COLUMNS = [
+  { header: 'id', key: 'id' },
+  { header: 'Name', key: 'name' },
+  { header: 'Country', key: 'countryName' },
+  { header: 'City', key: 'city' },
+  { header: 'State', key: 'state' },
+  { header: 'Short name', key: 'shortName' },
+  { header: 'Short code', key: 'shortCode' },
+  { header: 'Time zone', key: 'timeZone' },
+  { header: 'Cover image', key: 'coverImageUrl' },
+  { header: 'Best season', key: 'bestSeason' },
+  { header: 'Weather summary', key: 'weatherSummary' },
+  { header: 'About', key: 'aboutDestination' },
+  { header: 'General notes', key: 'generalNotes' },
+  { header: 'Tours & transfers notes', key: 'toursAndTransfersNotes' },
+  { header: 'FAQs', key: 'faqs' },
+  { header: 'SEO title', key: 'seoTitle' },
+  { header: 'SEO description', key: 'seoDescription' },
+  { header: 'SEO keywords', key: 'seoKeywords', tags: true },
+];
+
+// Fields destinationService.create() itself accepts — everything else on DESTINATION_COLUMNS is
+// applied with an immediate follow-up update() call, since create()'s parameter list is narrower
+// than update()'s (see the file header). Keeping this list here, next to the columns it splits,
+// is what stops the two drifting apart the next time a field is added.
+const DESTINATION_CREATE_FIELDS = new Set([
+  'name',
+  'countryName',
+  'city',
+  'state',
+  'shortName',
+  'aboutDestination',
+  'faqs',
+]);
+
+async function exportDestinations({ includeArchived = false, countryId } = {}) {
+  const where = { ...(includeArchived ? {} : { archived: false }), ...(countryId ? { countryId } : {}) };
+
+  const rows = await prisma.destination.findMany({
+    where,
+    include: { country: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Destinations');
+  sheet.columns = DESTINATION_COLUMNS.map((c) => ({ header: c.header, key: c.key, width: 22 }));
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  rows.forEach((d) => {
+    sheet.addRow({
+      id: d.id,
+      name: d.name,
+      countryName: d.country?.name ?? '',
+      city: d.city ?? '',
+      state: d.state ?? '',
+      shortName: d.shortName ?? '',
+      shortCode: d.shortCode ?? '',
+      timeZone: d.timeZone ?? '',
+      coverImageUrl: d.coverImageUrl ?? '',
+      bestSeason: d.bestSeason ?? '',
+      weatherSummary: d.weatherSummary ?? '',
+      aboutDestination: d.aboutDestination ?? '',
+      generalNotes: d.generalNotes ?? '',
+      toursAndTransfersNotes: d.toursAndTransfersNotes ?? '',
+      faqs: d.faqs ?? '',
+      seoTitle: d.seoTitle ?? '',
+      seoDescription: d.seoDescription ?? '',
+      seoKeywords: (d.seoKeywords ?? []).join(', '),
+    });
+  });
+
+  const guide = workbook.addWorksheet('Field guide');
+  guide.columns = [
+    { header: 'Column', key: 'c', width: 26 },
+    { header: 'Notes', key: 'n', width: 70 },
+  ];
+  guide.getRow(1).font = { bold: true };
+  guide.addRow({ c: 'Country', n: 'The country\'s name, exactly as it appears in the Library. Unrecognised names are created on first mention, same as typing one into the form.' });
+  guide.addRow({ c: 'SEO keywords', n: 'Comma-separated.' });
+  guide.addRow({
+    c: 'id',
+    n: 'Leave blank on a new row. Filled in, it must match an existing destination to update it; otherwise matching falls back to Name (case-insensitive).',
+  });
+
+  return { buffer: await workbook.xlsx.writeBuffer(), filename: 'destinations-export.xlsx' };
+}
+
+async function importDestinations(buffer, { user, reason } = {}) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+
+  if (!sheet || sheet.rowCount < 1) throw ApiError.badRequest('The file has no data.');
+
+  const headers = sheet.getRow(1).values.slice(1).map((h) => String(h ?? '').trim());
+  const labelToKey = new Map(DESTINATION_COLUMNS.map((c) => [c.header, c.key]));
+  const idCol = headers.indexOf('id');
+
+  const existing = await prisma.destination.findMany({ select: { id: true, name: true } });
+  const byId = new Set(existing.map((r) => r.id));
+  const byName = new Map(existing.map((r) => [r.name.trim().toLowerCase(), r.id]));
+
+  const result = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    if (row.values.length <= 1) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      const payload = {};
+      headers.forEach((h, col) => {
+        const key = labelToKey.get(h);
+        if (!key) return;
+        const raw = rawCellValue(row.getCell(col + 1));
+        if (raw === null || raw === undefined || raw === '') return;
+
+        const columnDef = DESTINATION_COLUMNS.find((c) => c.key === key);
+        payload[key] = columnDef?.tags
+          ? String(raw).split(',').map((s) => s.trim()).filter(Boolean)
+          : String(raw).trim();
+      });
+
+      const sheetId = idCol >= 0 ? String(rawCellValue(row.getCell(idCol + 1)) ?? '').trim() : '';
+      const matchedId =
+        (sheetId && byId.has(sheetId) && sheetId) ||
+        (payload.name ? byName.get(payload.name.trim().toLowerCase()) : null) ||
+        null;
+
+      if (matchedId) {
+        // eslint-disable-next-line no-await-in-loop
+        const { destination: updated } = await destinationService.update(matchedId, payload);
+        result.updated += 1;
+        byName.set(updated.name.trim().toLowerCase(), updated.id);
+      } else {
+        if (!payload.name) throw new Error('Missing required field: Name');
+
+        const createPayload = {};
+        const updatePayload = {};
+        Object.entries(payload).forEach(([key, value]) => {
+          if (DESTINATION_CREATE_FIELDS.has(key)) createPayload[key] = value;
+          else updatePayload[key] = value;
+        });
+
+        // eslint-disable-next-line no-await-in-loop
+        const { destination: created } = await destinationService.create(createPayload);
+        if (Object.keys(updatePayload).length > 0) {
+          // eslint-disable-next-line no-await-in-loop
+          await destinationService.update(created.id, updatePayload);
+        }
+        result.created += 1;
+        byId.add(created.id);
+        byName.set(created.name.trim().toLowerCase(), created.id);
+      }
+    } catch (error) {
+      result.errors.push({ row: rowNumber, message: cleanErrorMessage(error) });
+    }
+  }
+
+  if ((result.created > 0 || result.updated > 0) && reason) {
+    // destinationService itself already writes no audit entries of its own (unlike libraryService),
+    // so a bulk import's provenance would otherwise be invisible next to the rows it touched. This
+    // is a summary note, not a per-row entry — per-row audit history is exactly what the "created/
+    // updated" counts above already are.
+    await auditService.record(prisma, {
+      entityType: 'Destination',
+      entityId: 'bulk-import',
+      action: 'UPDATE',
+      after: { created: result.created, updated: result.updated },
+      actor: user,
+      reason,
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Hotels — dedicated service, scoped to one destination (matches how HotelsTab itself works: pick
+// a destination first, then see/manage its hotels).
+// ---------------------------------------------------------------------------
+
+const HOTEL_COLUMNS = [
+  { header: 'id', key: 'id' },
+  { header: 'Name', key: 'name' },
+  { header: 'Category', key: 'category' },
+  { header: 'Star rating', key: 'starRating', number: true },
+  { header: 'Description', key: 'description' },
+  { header: 'Address', key: 'address' },
+  { header: 'Map link', key: 'mapLink' },
+  { header: 'Cover image', key: 'coverImageUrl' },
+  { header: 'Room type', key: 'roomType' },
+  { header: 'Meal plan', key: 'mealPlan' },
+  { header: 'Refundable', key: 'refundable', boolean: true },
+  { header: 'Services offered', key: 'servicesOffered' },
+];
+
+const HOTEL_CREATE_FIELDS = new Set(['name', 'category', 'description', 'starRating', 'roomType', 'mealPlan']);
+
+async function exportHotelsForDestination(destinationId, { includeArchived = false } = {}) {
+  const destination = await prisma.destination.findUnique({ where: { id: destinationId }, select: { id: true, name: true } });
+  if (!destination) throw ApiError.notFound(`No destination exists with id ${destinationId}`);
+
+  const rows = await prisma.hotel.findMany({
+    where: { destinationId, ...(includeArchived ? {} : { archived: false }) },
+    orderBy: { name: 'asc' },
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Hotels');
+  sheet.columns = HOTEL_COLUMNS.map((c) => ({ header: c.header, key: c.key, width: 22 }));
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  rows.forEach((h) => {
+    sheet.addRow({
+      id: h.id,
+      name: h.name,
+      category: h.category,
+      starRating: h.starRating ?? '',
+      description: h.description,
+      address: h.address ?? '',
+      mapLink: h.mapLink ?? '',
+      coverImageUrl: h.coverImageUrl ?? '',
+      roomType: h.roomType ?? '',
+      mealPlan: h.mealPlan ?? '',
+      refundable: h.refundable === null ? '' : h.refundable,
+      servicesOffered: h.servicesOffered ?? '',
+    });
+  });
+
+  const guide = workbook.addWorksheet('Field guide');
+  guide.columns = [
+    { header: 'Column', key: 'c', width: 20 },
+    { header: 'Notes', key: 'n', width: 60 },
+  ];
+  guide.getRow(1).font = { bold: true };
+  guide.addRow({ c: 'Refundable', n: 'TRUE, FALSE, or blank for "not stated".' });
+  guide.addRow({ c: 'id', n: 'Leave blank on a new row; otherwise matched by id, then by Name within this destination.' });
+
+  return { buffer: await workbook.xlsx.writeBuffer(), filename: `${destination.name.replace(/[^a-z0-9]+/gi, '-')}-hotels.xlsx` };
+}
+
+async function importHotelsForDestination(destinationId, buffer, { user, reason } = {}) {
+  await destinationService.assertActiveDestination(destinationId);
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+
+  if (!sheet || sheet.rowCount < 1) throw ApiError.badRequest('The file has no data.');
+
+  const headers = sheet.getRow(1).values.slice(1).map((h) => String(h ?? '').trim());
+  const labelToKey = new Map(HOTEL_COLUMNS.map((c) => [c.header, c.key]));
+  const idCol = headers.indexOf('id');
+
+  const existing = await prisma.hotel.findMany({ where: { destinationId }, select: { id: true, name: true } });
+  const byId = new Set(existing.map((r) => r.id));
+  const byName = new Map(existing.map((r) => [r.name.trim().toLowerCase(), r.id]));
+
+  const result = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    if (row.values.length <= 1) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      const payload = {};
+      headers.forEach((h, col) => {
+        const key = labelToKey.get(h);
+        if (!key) return;
+        const raw = rawCellValue(row.getCell(col + 1));
+        if (raw === null || raw === undefined || raw === '') return;
+
+        const columnDef = HOTEL_COLUMNS.find((c) => c.key === key);
+        if (columnDef?.number) payload[key] = Number(raw);
+        else if (columnDef?.boolean) payload[key] = ['true', 'yes', '1'].includes(String(raw).trim().toLowerCase());
+        else payload[key] = String(raw).trim();
+      });
+
+      const sheetId = idCol >= 0 ? String(rawCellValue(row.getCell(idCol + 1)) ?? '').trim() : '';
+      const matchedId =
+        (sheetId && byId.has(sheetId) && sheetId) ||
+        (payload.name ? byName.get(payload.name.trim().toLowerCase()) : null) ||
+        null;
+
+      if (matchedId) {
+        // eslint-disable-next-line no-await-in-loop
+        const updated = await hotelService.update(matchedId, payload);
+        result.updated += 1;
+        byName.set(updated.name.trim().toLowerCase(), updated.id);
+      } else {
+        const missingKeys = ['name', 'category', 'description'].filter((f) => !payload[f]);
+        if (missingKeys.length > 0) {
+          const labels = missingKeys.map((k) => HOTEL_COLUMNS.find((c) => c.key === k)?.header ?? k);
+          throw new Error(`Missing required field(s): ${labels.join(', ')}`);
+        }
+
+        const createPayload = { destinationId };
+        const updatePayload = {};
+        Object.entries(payload).forEach(([key, value]) => {
+          if (HOTEL_CREATE_FIELDS.has(key)) createPayload[key] = value;
+          else updatePayload[key] = value;
+        });
+
+        // eslint-disable-next-line no-await-in-loop
+        const created = await hotelService.create(createPayload);
+        if (Object.keys(updatePayload).length > 0) {
+          // eslint-disable-next-line no-await-in-loop
+          await hotelService.update(created.id, updatePayload);
+        }
+        result.created += 1;
+        byId.add(created.id);
+        byName.set(created.name.trim().toLowerCase(), created.id);
+      }
+    } catch (error) {
+      result.errors.push({ row: rowNumber, message: cleanErrorMessage(error) });
+    }
+  }
+
+  if ((result.created > 0 || result.updated > 0) && reason) {
+    await auditService.record(prisma, {
+      entityType: 'Hotel',
+      entityId: 'bulk-import',
+      action: 'UPDATE',
+      after: { destinationId, created: result.created, updated: result.updated },
+      actor: user,
+      reason,
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Day templates — title/description only, scoped to one destination. Events (the substance of a
+// template) stay on the dedicated itinerary-day builder, same reasoning as hotel rates getting
+// their own separate bulk mechanism rather than being folded into the hotel's own fields.
+// ---------------------------------------------------------------------------
+
+const DAY_TEMPLATE_COLUMNS = [
+  { header: 'id', key: 'id' },
+  { header: 'Title', key: 'title' },
+  { header: 'Description', key: 'description' },
+];
+
+async function exportDayTemplatesForDestination(destinationId, { includeArchived = false } = {}) {
+  const destination = await prisma.destination.findUnique({ where: { id: destinationId }, select: { id: true, name: true } });
+  if (!destination) throw ApiError.notFound(`No destination exists with id ${destinationId}`);
+
+  const rows = await prisma.dayTemplate.findMany({
+    where: { destinationId, ...(includeArchived ? {} : { archived: false }) },
+    orderBy: { title: 'asc' },
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Day templates');
+  sheet.columns = DAY_TEMPLATE_COLUMNS.map((c) => ({ header: c.header, key: c.key, width: 30 }));
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  rows.forEach((t) => sheet.addRow({ id: t.id, title: t.title, description: t.description }));
+
+  const guide = workbook.addWorksheet('Field guide');
+  guide.columns = [
+    { header: 'Column', key: 'c', width: 20 },
+    { header: 'Notes', key: 'n', width: 70 },
+  ];
+  guide.getRow(1).font = { bold: true };
+  guide.addRow({
+    c: 'Events',
+    n: 'Not part of this file — a template\'s day-by-day events are built on its own screen in the Library, the same way a hotel\'s rate card is.',
+  });
+  guide.addRow({ c: 'id', n: 'Leave blank on a new row; otherwise matched by id, then by Title within this destination.' });
+
+  return {
+    buffer: await workbook.xlsx.writeBuffer(),
+    filename: `${destination.name.replace(/[^a-z0-9]+/gi, '-')}-day-templates.xlsx`,
+  };
+}
+
+async function importDayTemplatesForDestination(destinationId, buffer, { user, reason } = {}) {
+  await destinationService.assertActiveDestination(destinationId);
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+
+  if (!sheet || sheet.rowCount < 1) throw ApiError.badRequest('The file has no data.');
+
+  const headers = sheet.getRow(1).values.slice(1).map((h) => String(h ?? '').trim());
+  const labelToKey = new Map(DAY_TEMPLATE_COLUMNS.map((c) => [c.header, c.key]));
+  const idCol = headers.indexOf('id');
+
+  const existing = await prisma.dayTemplate.findMany({ where: { destinationId }, select: { id: true, title: true } });
+  const byId = new Set(existing.map((r) => r.id));
+  const byTitle = new Map(existing.map((r) => [r.title.trim().toLowerCase(), r.id]));
+
+  const result = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    if (row.values.length <= 1) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      const payload = {};
+      headers.forEach((h, col) => {
+        const key = labelToKey.get(h);
+        if (!key) return;
+        const raw = rawCellValue(row.getCell(col + 1));
+        if (raw !== null && raw !== undefined && raw !== '') payload[key] = String(raw).trim();
+      });
+
+      const sheetId = idCol >= 0 ? String(rawCellValue(row.getCell(idCol + 1)) ?? '').trim() : '';
+      const matchedId =
+        (sheetId && byId.has(sheetId) && sheetId) ||
+        (payload.title ? byTitle.get(payload.title.trim().toLowerCase()) : null) ||
+        null;
+
+      if (matchedId) {
+        // eslint-disable-next-line no-await-in-loop
+        const updated = await dayTemplateService.update(matchedId, payload);
+        result.updated += 1;
+        byTitle.set(updated.title.trim().toLowerCase(), updated.id);
+      } else {
+        const missingKeys = ['title', 'description'].filter((f) => !payload[f]);
+        if (missingKeys.length > 0) {
+          const labels = missingKeys.map((k) => DAY_TEMPLATE_COLUMNS.find((c) => c.key === k)?.header ?? k);
+          throw new Error(`Missing required field(s): ${labels.join(', ')}`);
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        const created = await dayTemplateService.create({ destinationId, ...payload });
+        result.created += 1;
+        byId.add(created.id);
+        byTitle.set(created.title.trim().toLowerCase(), created.id);
+      }
+    } catch (error) {
+      result.errors.push({ row: rowNumber, message: cleanErrorMessage(error) });
+    }
+  }
+
+  if ((result.created > 0 || result.updated > 0) && reason) {
+    await auditService.record(prisma, {
+      entityType: 'DayTemplate',
+      entityId: 'bulk-import',
+      action: 'UPDATE',
+      after: { destinationId, created: result.created, updated: result.updated },
+      actor: user,
+      reason,
+    });
+  }
+
+  return result;
+}
+
 module.exports = {
   exportEntity,
   importEntity,
   exportHotelRates,
   importHotelRates,
+  exportDestinations,
+  importDestinations,
+  exportHotelsForDestination,
+  importHotelsForDestination,
+  exportDayTemplatesForDestination,
+  importDayTemplatesForDestination,
   bulkConfigFor,
 };

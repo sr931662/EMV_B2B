@@ -43,7 +43,7 @@ function toAgencyRow(user) {
  * isVerified; unverified is archived:false AND isVerified:false; active is the remainder), so
  * they can never double-count a row.
  */
-async function list({ search, status, includeArchived = false } = {}) {
+async function list({ search, status, includeArchived = false, limit = 50, offset = 0 } = {}) {
   const where = { role: 'partner' };
 
   if (status === 'suspended') {
@@ -65,14 +65,26 @@ async function list({ search, status, includeArchived = false } = {}) {
     ];
   }
 
-  const agencies = await prisma.user.findMany({
-    where,
-    select: AGENCY_LIST_SELECT,
-    orderBy: { createdAt: 'desc' },
-  });
+  const [agencies, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      select: AGENCY_LIST_SELECT,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.user.count({ where }),
+  ]);
 
-  return agencies.map(toAgencyRow);
+  return { agencies: agencies.map(toAgencyRow), total, limit, offset };
 }
+
+// Each embedded sub-list on the agency detail page is capped rather than paginated — it is an
+// admin's "what has this agency done" summary, not a browsing table, and a highly active agency
+// still deserves a bounded query instead of one that grows with their whole lifetime history.
+// `total` is still reported per list so the page can say "showing the latest 100 of 340" rather
+// than silently going quiet past the cap.
+const SUBLIST_CAP = 100;
 
 /**
  * Full detail: profile + quote/visa-request summaries + combined payment history.
@@ -91,7 +103,9 @@ async function getById(id) {
     throw ApiError.notFound(`No agency exists with id ${id}`);
   }
 
-  const [quotes, visaRequests, payments] = await Promise.all([
+  const paymentWhere = { OR: [{ quote: { partnerId: id } }, { visaRequest: { partnerId: id } }] };
+
+  const [quotes, quotesTotal, visaRequests, visaRequestsTotal, payments, paymentsTotal] = await Promise.all([
     prisma.quote.findMany({
       where: { partnerId: id },
       select: {
@@ -103,7 +117,9 @@ async function getById(id) {
         package: { select: { title: true } },
       },
       orderBy: { createdAt: 'desc' },
+      take: SUBLIST_CAP,
     }),
+    prisma.quote.count({ where: { partnerId: id } }),
     prisma.visaRequest.findMany({
       where: { partnerId: id },
       select: {
@@ -116,12 +132,14 @@ async function getById(id) {
         _count: { select: { passengers: { where: { archived: false } } } },
       },
       orderBy: { createdAt: 'desc' },
+      take: SUBLIST_CAP,
     }),
+    prisma.visaRequest.count({ where: { partnerId: id } }),
     // A Payment has no direct partnerId column — it belongs to a Quote or a VisaRequest, each
     // of which does. This single OR-across-relations query lets Prisma express both joins in
     // one round trip rather than fetching quotes/visa-requests first and querying per row.
     prisma.payment.findMany({
-      where: { OR: [{ quote: { partnerId: id } }, { visaRequest: { partnerId: id } }] },
+      where: paymentWhere,
       select: {
         id: true,
         type: true,
@@ -134,7 +152,9 @@ async function getById(id) {
         visaRequest: { select: { applicationNumber: true } },
       },
       orderBy: { createdAt: 'desc' },
+      take: SUBLIST_CAP,
     }),
+    prisma.payment.count({ where: paymentWhere }),
   ]);
 
   return {
@@ -152,6 +172,7 @@ async function getById(id) {
       archived: q.archived,
       createdAt: q.createdAt,
     })),
+    quotesTotal,
     visaRequests: visaRequests.map((v) => ({
       id: v.id,
       applicationNumber: v.applicationNumber,
@@ -161,6 +182,7 @@ async function getById(id) {
       archived: v.archived,
       createdAt: v.createdAt,
     })),
+    visaRequestsTotal,
     payments: payments.map((p) => ({
       id: p.id,
       type: p.type,
@@ -171,6 +193,7 @@ async function getById(id) {
       archived: p.archived,
       createdAt: p.createdAt,
     })),
+    paymentsTotal,
   };
 }
 

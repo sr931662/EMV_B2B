@@ -20,7 +20,8 @@ import CancellationTierEditor from '../../components/library/CancellationTierEdi
 import RateCardEditor from '../../components/library/RateCardEditor';
 import ActivityRateEditor from '../../components/library/ActivityRateEditor';
 import BulkImportExport from '../../components/library/BulkImportExport';
-import { apiGet, apiPost, apiPatch, ApiError } from '../../api/client';
+import ConfirmModal from '../../components/admin/ConfirmModal';
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -89,6 +90,7 @@ const LOOKUP_TYPES = [
   { value: 'ROOM_TYPE', label: 'Room types' },
   { value: 'MEAL_PLAN', label: 'Meal plans' },
   { value: 'ACTIVITY_CATEGORY', label: 'Activity categories' },
+  { value: 'PACKAGE_TAG', label: 'Package tags' },
 ];
 
 /** Picks a few readable columns out of a row without knowing the entity. */
@@ -169,7 +171,7 @@ function slugFrom(name) {
  * Nothing here knows what a country or a currency is. That is the point: a new library module is a
  * registry entry on the server, and its form appears here without this file changing.
  */
-function EditorModal({ open, onClose, entity, entityMeta, row, lookupType, onSaved }) {
+function EditorModal({ open, onClose, entity, entityMeta, row, lookupType, itemLabel, onSaved }) {
   const [form, setForm] = useState({});
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
@@ -318,7 +320,7 @@ function EditorModal({ open, onClose, entity, entityMeta, row, lookupType, onSav
     <Modal
       open={open}
       onClose={onClose}
-      title={isNew ? `New ${entityMeta?.label ?? 'item'}` : `Edit ${entityMeta?.label ?? 'item'}`}
+      title={isNew ? `New ${itemLabel ?? entityMeta?.label ?? 'item'}` : `Edit ${itemLabel ?? entityMeta?.label ?? 'item'}`}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -342,10 +344,15 @@ function EditorModal({ open, onClose, entity, entityMeta, row, lookupType, onSav
   );
 }
 
+const HISTORY_PAGE_SIZE = 20;
+
 function DetailPanel({ entity, row, onClose, onChanged }) {
   const [usage, setUsage] = useState(null);
   const [history, setHistory] = useState([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const { showToast } = useToast();
   const { user } = useAuth();
 
@@ -360,17 +367,36 @@ function DetailPanel({ entity, row, onClose, onChanged }) {
 
     Promise.all([
       apiGet(`/api/library/${entity}/${id}/usage`).catch(() => ({ references: [], total: 0 })),
-      apiGet(`/api/library/${entity}/${id}/history?limit=20`).catch(() => ({ entries: [] })),
+      apiGet(`/api/library/${entity}/${id}/history?limit=${HISTORY_PAGE_SIZE}`).catch(() => ({
+        entries: [],
+        total: 0,
+      })),
     ]).then(([u, h]) => {
       if (cancelled) return;
       setUsage(u);
       setHistory(h.entries);
+      setHistoryTotal(h.total);
     });
 
     return () => {
       cancelled = true;
     };
   }, [entity, id]);
+
+  const loadMoreHistory = async () => {
+    setLoadingMoreHistory(true);
+    try {
+      const res = await apiGet(
+        `/api/library/${entity}/${id}/history?limit=${HISTORY_PAGE_SIZE}&offset=${history.length}`
+      );
+      setHistory((prev) => [...prev, ...res.entries]);
+      setHistoryTotal(res.total);
+    } catch {
+      // Best-effort — the entries already shown stay visible either way.
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  };
 
   const archive = async (force = false) => {
     setBusy(true);
@@ -396,6 +422,16 @@ function DetailPanel({ entity, row, onClose, onChanged }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  // No local try/catch: ConfirmModal's own handleConfirm catches a rejection, shows the message
+  // inline and keeps the dialog open (e.g. "still referenced by 2 Package") rather than closing on
+  // a failed delete the way a toast-only failure would.
+  const hardDelete = async () => {
+    await apiDelete(`/api/library/${entity}/${id}/permanent`);
+    showToast({ variant: 'success', message: 'Deleted permanently.' });
+    setConfirmingDelete(false);
+    onChanged();
   };
 
   const { title } = summarise(row);
@@ -433,7 +469,18 @@ function DetailPanel({ entity, row, onClose, onChanged }) {
       {isAdmin && (
         <div className="mt-4 flex flex-wrap gap-2">
           {row.archived ? (
-            <Button size="sm" loading={busy} onClick={restore}>Restore</Button>
+            <>
+              <Button size="sm" loading={busy} onClick={restore}>Restore</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={usage === null || blocked}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                <Icon name="trash" size={13} />
+                Delete permanently
+              </Button>
+            </>
           ) : (
             <>
               <Button variant="outline" size="sm" loading={busy} onClick={() => archive(false)}>
@@ -451,6 +498,11 @@ function DetailPanel({ entity, row, onClose, onChanged }) {
             </>
           )}
         </div>
+      )}
+      {isAdmin && row.archived && blocked && (
+        <p className="mt-1.5 text-[12px] text-neutral-500">
+          Still referenced by something above — detach it first to permanently delete this row.
+        </p>
       )}
 
       <div className="mt-5 border-t border-neutral-100 pt-4">
@@ -476,7 +528,28 @@ function DetailPanel({ entity, row, onClose, onChanged }) {
             ))}
           </ul>
         )}
+        {history.length > 0 && history.length < historyTotal && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2"
+            loading={loadingMoreHistory}
+            onClick={loadMoreHistory}
+          >
+            Load {Math.min(HISTORY_PAGE_SIZE, historyTotal - history.length)} more
+          </Button>
+        )}
       </div>
+
+      <ConfirmModal
+        open={confirmingDelete}
+        onClose={() => setConfirmingDelete(false)}
+        title="Delete permanently"
+        description={`"${title}" will be gone for good — this cannot be undone, and there is no Restore afterwards. The audit trail keeps a record that it existed, but the row itself is removed.`}
+        confirmLabel="Delete permanently"
+        confirmVariant="danger"
+        onConfirm={hardDelete}
+      />
     </Card>
   );
 }
@@ -540,14 +613,22 @@ function NoteBlockHealth({ onCreated }) {
  * @param embedded    Renders without its own page header, for when it sits inside the Library's tabs
  *                    rather than being a page of its own. There is only ONE Library in the product —
  *                    a second "master data" screen next to it is the duplication this replaced.
- * @param fixedEntity Locks the browser to one registry entity and hides the entity-switcher Tabs.
- *                    For a module that deserves its own top-level Library tab (Document types) without
- *                    duplicating this whole screen just to change which entity it starts on.
+ * @param fixedEntity     Locks the browser to one registry entity and hides the entity-switcher Tabs.
+ *                        For a module that deserves its own top-level Library tab (Document types)
+ *                        without duplicating this whole screen just to change which entity it starts on.
+ * @param fixedLookupType For `fixedEntity="lookup"`: also locks the vocabulary "type" and hides the
+ *                        Vocabulary switcher. Inclusions and Exclusions are `lookup` rows under the
+ *                        hood, but nobody browsing the Library thinks of them as "Vocabulary item,
+ *                        filtered to INCLUSION" — they think of them as their own thing, so they get
+ *                        their own tab that happens to be backed by the same table.
+ * @param itemLabel       Singular display name ("Inclusion", "Tag") used in the "New …" button and
+ *                        the editor title in place of the registry's generic entity label, for the
+ *                        same reason as fixedLookupType above.
  */
-function LibraryShellPage({ embedded = false, fixedEntity = null }) {
+function LibraryShellPage({ embedded = false, fixedEntity = null, fixedLookupType = null, itemLabel = null }) {
   const [entities, setEntities] = useState([]);
   const [entity, setEntity] = useState(fixedEntity ?? 'lookup');
-  const [lookupType, setLookupType] = useState('TRIP_TYPE');
+  const [lookupType, setLookupType] = useState(fixedLookupType ?? 'TRIP_TYPE');
   const [q, setQ] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
   const [rows, setRows] = useState([]);
@@ -559,8 +640,70 @@ function LibraryShellPage({ embedded = false, fixedEntity = null }) {
   const [detail, setDetail] = useState(null);
   // Some entities have a child collection that needs its own editor — a cancellation policy's bands.
   const [childEditorFor, setChildEditorFor] = useState(null);
+  const [archiving, setArchiving] = useState(null); // id of the row an archive/restore call is in flight for
+  const [deleteTarget, setDeleteTarget] = useState(null); // row pending a permanent-delete confirmation
+
+  const { user } = useAuth();
+  const { showToast } = useToast();
+  // Withdrawing something the whole catalogue may depend on is a different decision from
+  // correcting a description, which is why the server restricts it (admin-only) and this mirrors
+  // that — same boundary DetailPanel already enforces for its own Archive/Restore buttons.
+  const isAdmin = user?.role === 'admin';
 
   const entityMeta = useMemo(() => entities.find((e) => e.entity === entity), [entities, entity]);
+
+  /**
+   * Quick archive straight from the row, for the common case — nothing references it yet.
+   *
+   * Falls back to opening the detail panel (rather than force-archiving blind) when the server
+   * refuses because something still depends on it: the row list has no room to show what, and
+   * force-archiving something without seeing what breaks is exactly the mistake this two-step
+   * exists to prevent.
+   */
+  const quickArchive = async (row) => {
+    const id = row.id ?? row.code;
+    setArchiving(id);
+    try {
+      await apiPost(`/api/library/${entity}/${id}/archive`, {});
+      showToast({ variant: 'success', message: 'Archived.' });
+      if ((detail?.id ?? detail?.code) === id) setDetail(null);
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        showToast({ variant: 'warning', message: 'Still referenced by something — opening details.' });
+        setDetail(row);
+      } else {
+        showToast({ variant: 'danger', message: err instanceof ApiError ? err.message : 'Failed to archive.' });
+      }
+    } finally {
+      setArchiving(null);
+    }
+  };
+
+  const quickRestore = async (row) => {
+    const id = row.id ?? row.code;
+    setArchiving(id);
+    try {
+      await apiPost(`/api/library/${entity}/${id}/restore`, {});
+      showToast({ variant: 'success', message: 'Restored.' });
+      await load();
+    } catch (err) {
+      showToast({ variant: 'danger', message: err instanceof ApiError ? err.message : 'Failed to restore.' });
+    } finally {
+      setArchiving(null);
+    }
+  };
+
+  // No local try/catch: ConfirmModal's own handleConfirm catches a rejection (e.g. "still
+  // referenced by 2 Package") and shows it inline rather than closing on a failed delete.
+  const quickHardDelete = async () => {
+    const id = deleteTarget.id ?? deleteTarget.code;
+    await apiDelete(`/api/library/${entity}/${id}/permanent`);
+    showToast({ variant: 'success', message: 'Deleted permanently.' });
+    if ((detail?.id ?? detail?.code) === id) setDetail(null);
+    setDeleteTarget(null);
+    await load();
+  };
 
   useEffect(() => {
     apiGet('/api/library/entities')
@@ -649,7 +792,7 @@ function LibraryShellPage({ embedded = false, fixedEntity = null }) {
         )}
 
         <div className={`grid grid-cols-1 gap-3 sm:grid-cols-3 ${fixedEntity ? '' : 'mt-4'}`}>
-          {entityMeta?.requiredFilter === 'type' && (
+          {entityMeta?.requiredFilter === 'type' && !fixedLookupType && (
             <Select
               label="Vocabulary"
               value={lookupType}
@@ -683,12 +826,13 @@ function LibraryShellPage({ embedded = false, fixedEntity = null }) {
               <BulkImportExport
                 entity={entity}
                 entityMeta={entityMeta}
+                label={itemLabel ?? undefined}
                 requiredType={entityMeta?.requiredFilter === 'type' ? lookupType : undefined}
                 onImported={load}
               />
               <Button size="sm" onClick={() => setEditing(null)}>
                 <Icon name="plus" size={15} />
-                New {entityMeta?.label?.toLowerCase() ?? 'item'}
+                New {(itemLabel ?? entityMeta?.label ?? 'item').toLowerCase()}
               </Button>
             </div>
           )}
@@ -743,7 +887,7 @@ function LibraryShellPage({ embedded = false, fixedEntity = null }) {
                             {CHILD_EDITORS[entityMeta.childEditor].buttonLabel}
                           </Button>
                         )}
-                        {!entityMeta?.readOnly && (
+                        {!entityMeta?.readOnly && !row.archived && (
                           <Button
                             as="span"
                             variant="outline"
@@ -754,6 +898,39 @@ function LibraryShellPage({ embedded = false, fixedEntity = null }) {
                             }}
                           >
                             Edit
+                          </Button>
+                        )}
+                        {/* Archive/Restore is admin-only, same boundary the server enforces —
+                            hidden rather than shown-and-rejected, so the row does not offer a
+                            button that always 403s. */}
+                        {isAdmin && !entityMeta?.readOnly && (
+                          <Button
+                            as="span"
+                            variant="outline"
+                            size="sm"
+                            loading={archiving === (row.id ?? row.code)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (row.archived) quickRestore(row);
+                              else quickArchive(row);
+                            }}
+                          >
+                            <Icon name={row.archived ? 'restore' : 'archive'} size={13} />
+                            {row.archived ? 'Restore' : 'Archive'}
+                          </Button>
+                        )}
+                        {isAdmin && row.archived && !entityMeta?.readOnly && (
+                          <Button
+                            as="span"
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteTarget(row);
+                            }}
+                          >
+                            <Icon name="trash" size={13} />
+                            Delete
                           </Button>
                         )}
                       </button>
@@ -804,10 +981,25 @@ function LibraryShellPage({ embedded = false, fixedEntity = null }) {
         entityMeta={entityMeta}
         row={editing}
         lookupType={lookupType}
+        itemLabel={itemLabel}
         onSaved={() => {
           setEditing(undefined);
           load();
         }}
+      />
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete permanently"
+        description={
+          deleteTarget
+            ? `"${summarise(deleteTarget).title}" will be gone for good — this cannot be undone, and there is no Restore afterwards. The audit trail keeps a record that it existed, but the row itself is removed.`
+            : ''
+        }
+        confirmLabel="Delete permanently"
+        confirmVariant="danger"
+        onConfirm={quickHardDelete}
       />
     </div>
   );

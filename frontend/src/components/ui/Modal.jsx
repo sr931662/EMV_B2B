@@ -30,6 +30,18 @@ function Modal({ open, onClose, title, size = 'md', children, footer }) {
   const panelRef = useRef(null);
   const restoreFocusRef = useRef(null);
 
+  // Callers almost always pass `onClose={() => setX(false)}` — a fresh function every render of
+  // the caller. If the focus-trap effect below depended on `onClose` directly, typing a single
+  // character into any field inside the modal would re-render the caller, hand this effect a new
+  // `onClose` reference, and re-run the whole effect: its cleanup calls
+  // `restoreFocusRef.current?.focus?.()`, yanking focus back to whatever opened the modal, on
+  // every keystroke. A ref holding the latest `onClose` lets handleKeyDown always call the
+  // current one without the effect itself needing to depend on it.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return undefined;
 
@@ -52,7 +64,7 @@ function Modal({ open, onClose, title, size = 'md', children, footer }) {
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -87,7 +99,9 @@ function Modal({ open, onClose, title, size = 'md', children, footer }) {
       body.style.paddingRight = previousPaddingRight;
       restoreFocusRef.current?.focus?.();
     };
-  }, [open, onClose]);
+    // Deliberately NOT depending on `onClose` — see onCloseRef above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

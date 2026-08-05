@@ -120,6 +120,76 @@ const listDayTemplatesSchema = z
   .strict();
 
 // ---------------------------------------------------------------------------
+// Day template events — the day-by-day itinerary content a template actually exists to hold.
+// Mirrors packageSchemas.js's replaceDayEventsSchema field-for-field (the two shapes must agree —
+// packageService.copyEvent() copies one into the other at package-build time), with one addition:
+// `activityId`, a REAL library reference here (DayTemplateEvent keeps a live FK), unlike
+// PackageDayEvent's frozen sourceActivityId breadcrumb which isn't caller-settable at all.
+// ---------------------------------------------------------------------------
+
+const DAY_EVENT_TYPES = [
+  'ARRIVAL',
+  'CHECK_IN',
+  'TRANSFER',
+  'SIGHTSEEING',
+  'ACTIVITY',
+  'MEAL',
+  'LEISURE',
+  'CHECK_OUT',
+  'OVERNIGHT',
+  'DEPARTURE',
+];
+
+const MEAL_TYPES = ['BREAKFAST', 'LUNCH', 'DINNER'];
+
+// Minutes from midnight. 1439 is 23:59 — a start time of 1440 would be the next day, which on a
+// day-numbered itinerary belongs to the next day's row.
+const minuteOfDayField = z.coerce
+  .number({ error: 'startMinute must be a number' })
+  .int('startMinute must be a whole number of minutes')
+  .min(0, 'startMinute cannot be negative')
+  .max(1439, 'startMinute must be before midnight (max 1439)');
+
+// Capped at 24h: anything longer is not one event, it is the next day.
+const eventDurationField = z.coerce
+  .number({ error: 'durationMinutes must be a number' })
+  .int('durationMinutes must be a whole number of minutes')
+  .min(0, 'durationMinutes cannot be negative')
+  .max(1440, 'durationMinutes must be at most 24 hours');
+
+const templateEventShape = {
+  title: requiredText('title', 200),
+  description: z.string().trim().max(5000).nullable().optional(),
+  type: z
+    .enum(DAY_EVENT_TYPES, { error: `type must be one of: ${DAY_EVENT_TYPES.join(', ')}` })
+    .optional()
+    .default('ACTIVITY'),
+  activityId: uuidField('activityId').nullable().optional(),
+  startMinute: minuteOfDayField.nullable().optional(),
+  durationMinutes: eventDurationField.nullable().optional(),
+  mealsIncluded: z.array(z.enum(MEAL_TYPES)).max(3).optional().default([]),
+  availability: z.string().trim().max(200).nullable().optional(),
+  transferMode: z.string().trim().max(120).nullable().optional(),
+  luggageAllowance: z.string().trim().max(200).nullable().optional(),
+};
+
+// One level of nesting only — same reasoning as packages: a sub-event of a sub-event is a level
+// of detail nobody reading an itinerary wants.
+const templateSubEventSchema = z.object(templateEventShape).strict();
+
+const replaceDayTemplateEventsSchema = z
+  .object({
+    events: z
+      .array(
+        z
+          .object({ ...templateEventShape, subEvents: z.array(templateSubEventSchema).max(20).optional().default([]) })
+          .strict()
+      )
+      .max(40, 'At most 40 events per day'),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
 // Hotels
 // ---------------------------------------------------------------------------
 
@@ -183,6 +253,7 @@ module.exports = {
   createDayTemplateSchema,
   updateDayTemplateSchema,
   listDayTemplatesSchema,
+  replaceDayTemplateEventsSchema,
   createHotelSchema,
   updateHotelSchema,
   listHotelsSchema,

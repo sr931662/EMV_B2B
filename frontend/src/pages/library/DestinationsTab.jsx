@@ -16,6 +16,7 @@ import {
   useToast,
 } from '../../components/ui';
 import LibraryPicker from '../../components/library/LibraryPicker';
+import BulkImportExport from '../../components/library/BulkImportExport';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 
 const PAGE_SIZE = 50;
@@ -187,10 +188,19 @@ function DestinationsTab({ onChanged }) {
             />
           </div>
         </div>
-        <Button size="sm" className="mb-0.5" onClick={openCreate}>
-          <Icon name="plus" size={14} />
-          New destination
-        </Button>
+        <div className="mb-0.5 flex flex-wrap items-center gap-2">
+          <BulkImportExport
+            label="Destinations"
+            exportUrl="/api/destinations/export"
+            importUrl="/api/destinations/import"
+            extraParams={countryFilter ? { countryId: countryFilter } : undefined}
+            onImported={load}
+          />
+          <Button size="sm" onClick={openCreate}>
+            <Icon name="plus" size={14} />
+            New destination
+          </Button>
+        </div>
       </Card>
 
       {error && <Alert variant="danger">{error}</Alert>}

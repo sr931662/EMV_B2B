@@ -2,9 +2,16 @@ const asyncHandler = require('../utils/asyncHandler');
 const adminUserService = require('../services/adminUserService');
 
 const list = asyncHandler(async (req, res) => {
-  const users = await adminUserService.list(req.validatedQuery);
+  const { users, total, limit, offset } = await adminUserService.list(req.validatedQuery);
 
-  res.status(200).json({ count: users.length, includeArchived: req.validatedQuery.includeArchived, users });
+  res.status(200).json({
+    count: users.length,
+    total,
+    limit,
+    offset,
+    includeArchived: req.validatedQuery.includeArchived,
+    users,
+  });
 });
 
 const create = asyncHandler(async (req, res) => {

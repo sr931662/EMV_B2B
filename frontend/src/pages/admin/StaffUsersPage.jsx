@@ -8,6 +8,7 @@ import {
   Icon,
   Input,
   Modal,
+  Pagination,
   PageHeader,
   PasswordInput,
   Select,
@@ -23,6 +24,8 @@ import { formatDate } from '../../lib/format';
 import { cn } from '../../lib/cn';
 import { isEmailValid, isPasswordValid } from '../../lib/validators';
 
+const PAGE_SIZE = 50;
+
 const ROLE_OPTIONS = [
   { value: 'data_feeder', label: 'Data Feeder' },
   { value: 'admin', label: 'Admin' },
@@ -33,6 +36,8 @@ function StaffUsersPage() {
   const { showToast } = useToast();
 
   const [users, setUsers] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -49,16 +54,30 @@ function StaffUsersPage() {
   const load = () => {
     setLoading(true);
     setError(null);
-    return apiGet(`/api/admin/users?includeArchived=${includeArchived}`)
-      .then((res) => setUsers(res.users))
+
+    const params = new URLSearchParams({
+      includeArchived: String(includeArchived),
+      limit: String(PAGE_SIZE),
+      offset: String((page - 1) * PAGE_SIZE),
+    });
+
+    return apiGet(`/api/admin/users?${params.toString()}`)
+      .then((res) => {
+        setUsers(res.users);
+        setTotal(res.total);
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load staff users.'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [includeArchived]);
+
+  useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeArchived]);
+  }, [includeArchived, page]);
 
   const openCreate = () => {
     setForm({ email: '', password: '', role: 'data_feeder' });
@@ -125,8 +144,8 @@ function StaffUsersPage() {
         />
         {!loading && (
           <p className="text-[13px] text-neutral-500">
-            <span className="font-semibold text-neutral-900 tabular-nums">{users.length}</span>{' '}
-            account{users.length === 1 ? '' : 's'}
+            <span className="font-semibold text-neutral-900 tabular-nums">{total}</span>{' '}
+            account{total === 1 ? '' : 's'}
           </p>
         )}
       </Card>
@@ -223,6 +242,7 @@ function StaffUsersPage() {
               })}
             </Table.Body>
           </Table>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
         </Card>
       )}
 

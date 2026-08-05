@@ -33,11 +33,16 @@ async function listActiveAdminUsers() {
   });
 }
 
-async function list(user, { unreadOnly = false } = {}) {
+async function list(user, { unreadOnly = false, limit = 20, offset = 0 } = {}) {
   const where = { userId: user.id, archived: false };
   if (unreadOnly) where.isRead = false;
 
-  return prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' } });
+  const [notifications, total] = await Promise.all([
+    prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit, skip: offset }),
+    prisma.notification.count({ where }),
+  ]);
+
+  return { notifications, total, limit, offset };
 }
 
 async function unreadCount(user) {

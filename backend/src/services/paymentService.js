@@ -487,19 +487,30 @@ async function submitForVisaRequest(visaRequestId, { transactionId, amount, note
 // Admin: queue + verification
 // ---------------------------------------------------------------------------
 
-async function listForAdmin({ status = 'PENDING_VERIFICATION', type, includeArchived = false } = {}) {
+async function listForAdmin({
+  status = 'PENDING_VERIFICATION',
+  type,
+  includeArchived = false,
+  limit = 50,
+  offset = 0,
+} = {}) {
   const where = {};
   if (!includeArchived) where.archived = false;
   if (status) where.status = status;
   if (type) where.type = type;
 
-  const payments = await prisma.payment.findMany({
-    where,
-    include: QUEUE_INCLUDE,
-    orderBy: { createdAt: 'desc' }, // newest first
-  });
+  const [rows, total] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      include: QUEUE_INCLUDE,
+      orderBy: { createdAt: 'desc' }, // newest first
+      take: limit,
+      skip: offset,
+    }),
+    prisma.payment.count({ where }),
+  ]);
 
-  return payments.map(toQueueRow);
+  return { payments: rows.map(toQueueRow), total, limit, offset };
 }
 
 async function getByIdForAdmin(id) {

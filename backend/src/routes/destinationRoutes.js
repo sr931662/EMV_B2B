@@ -4,6 +4,7 @@ const controller = require('../controllers/destinationController');
 const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
 const validate = require('../middleware/validate');
+const { uploadSpreadsheet, requireFile } = require('../middleware/upload');
 const { CAN_WRITE_LIBRARY, CAN_READ_LIBRARY } = require('../utils/roles');
 const {
   idParamSchema,
@@ -23,6 +24,16 @@ router.get(
   roleMiddleware(...CAN_READ_LIBRARY),
   validate(listDestinationsSchema, 'query'),
   controller.list
+);
+
+// Excel bulk import/export. Registered before '/:id' so the literal segment wins.
+router.get('/export', roleMiddleware(...CAN_READ_LIBRARY), controller.exportAll);
+router.post(
+  '/import',
+  roleMiddleware(...CAN_WRITE_LIBRARY),
+  uploadSpreadsheet('file'),
+  requireFile('file'),
+  controller.importAll
 );
 router.get(
   '/:id',

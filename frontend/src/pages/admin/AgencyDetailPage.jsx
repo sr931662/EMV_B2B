@@ -125,7 +125,7 @@ function AgencyDetailPage() {
         </dl>
       </Card>
 
-      <Card title={`Quotes (${agency.quotes.length})`} bodyClassName="p-0">
+      <Card title={`Quotes (${agency.quotesTotal})`} bodyClassName="p-0">
         {agency.quotes.length === 0 ? (
           <p className="px-5 py-6 text-sm text-neutral-500">No quotes yet.</p>
         ) : (
@@ -157,9 +157,14 @@ function AgencyDetailPage() {
             </table>
           </div>
         )}
+        {agency.quotesTotal > agency.quotes.length && (
+          <p className="border-t border-neutral-100 px-5 py-2.5 text-[12.5px] text-neutral-500">
+            Showing the latest {agency.quotes.length} of {agency.quotesTotal}.
+          </p>
+        )}
       </Card>
 
-      <Card title={`Visa requests (${agency.visaRequests.length})`} bodyClassName="p-0">
+      <Card title={`Visa requests (${agency.visaRequestsTotal})`} bodyClassName="p-0">
         {agency.visaRequests.length === 0 ? (
           <p className="px-5 py-6 text-sm text-neutral-500">No visa requests yet.</p>
         ) : (
@@ -193,9 +198,14 @@ function AgencyDetailPage() {
             </table>
           </div>
         )}
+        {agency.visaRequestsTotal > agency.visaRequests.length && (
+          <p className="border-t border-neutral-100 px-5 py-2.5 text-[12.5px] text-neutral-500">
+            Showing the latest {agency.visaRequests.length} of {agency.visaRequestsTotal}.
+          </p>
+        )}
       </Card>
 
-      <Card title={`Payment history (${agency.payments.length})`} bodyClassName="p-0">
+      <Card title={`Payment history (${agency.paymentsTotal})`} bodyClassName="p-0">
         {agency.payments.length === 0 ? (
           <p className="px-5 py-6 text-sm text-neutral-500">No payments yet.</p>
         ) : (
@@ -227,6 +237,11 @@ function AgencyDetailPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {agency.paymentsTotal > agency.payments.length && (
+          <p className="border-t border-neutral-100 px-5 py-2.5 text-[12.5px] text-neutral-500">
+            Showing the latest {agency.payments.length} of {agency.paymentsTotal}.
+          </p>
         )}
       </Card>
 

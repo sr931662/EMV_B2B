@@ -6,6 +6,7 @@ import {
   Card,
   EmptyState,
   Icon,
+  Pagination,
   PageHeader,
   Select,
   Skeleton,
@@ -14,6 +15,8 @@ import {
 import { apiGet, ApiError } from '../../api/client';
 import { formatCurrency, formatDate } from '../../lib/format';
 import { cn } from '../../lib/cn';
+
+const PAGE_SIZE = 50;
 
 const STATUS_OPTIONS = [
   { value: 'PENDING_VERIFICATION', label: 'Pending Verification' },
@@ -28,10 +31,12 @@ const TYPE_OPTIONS = [
   { value: 'VISA', label: 'Visa' },
 ];
 
-function buildQuery({ status, type }) {
+function buildQuery({ status, type }, page) {
   const params = new URLSearchParams();
   params.set('status', status);
   if (type) params.set('type', type);
+  params.set('limit', String(PAGE_SIZE));
+  params.set('offset', String((page - 1) * PAGE_SIZE));
   return `?${params.toString()}`;
 }
 
@@ -39,20 +44,25 @@ function AdminPaymentsQueuePage() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState({ status: 'PENDING_VERIFICATION', type: '' });
   const [payments, setPayments] = useState([]);
-  const [count, setCount] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
 
   useEffect(() => {
     let cancelled = false;
 
     setLoading(true);
     setError(null);
-    apiGet(`/api/admin/payments${buildQuery(filters)}`)
+    apiGet(`/api/admin/payments${buildQuery(filters, page)}`)
       .then((res) => {
         if (cancelled) return;
         setPayments(res.payments);
-        setCount(res.count);
+        setTotal(res.total);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof ApiError ? err.message : 'Failed to load payments.');
@@ -64,7 +74,7 @@ function AdminPaymentsQueuePage() {
     return () => {
       cancelled = true;
     };
-  }, [filters]);
+  }, [filters, page]);
 
   const mismatchCount = payments.filter((p) => p.reconciliationMismatch).length;
 
@@ -108,8 +118,8 @@ function AdminPaymentsQueuePage() {
             'Loading…'
           ) : (
             <>
-              <span className="font-semibold text-neutral-900 tabular-nums">{count}</span> payment
-              {count === 1 ? '' : 's'}
+              <span className="font-semibold text-neutral-900 tabular-nums">{total}</span> payment
+              {total === 1 ? '' : 's'}
             </>
           )}
         </p>
@@ -241,6 +251,7 @@ function AdminPaymentsQueuePage() {
               ))}
             </Table.Body>
           </Table>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
         </Card>
       )}
     </div>

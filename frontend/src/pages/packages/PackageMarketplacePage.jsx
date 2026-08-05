@@ -13,6 +13,7 @@ import {
 } from '../../components/ui';
 import PackageCard from '../../components/packages/PackageCard';
 import { apiGet, ApiError } from '../../api/client';
+import { PICKER_FULL_LIST_LIMIT } from '../../lib/constants';
 
 const PAGE_SIZE = 24; // a round number of grid cells at 4-up, 3-up and 2-up breakpoints alike
 
@@ -51,7 +52,9 @@ function PackageMarketplacePage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    apiGet('/api/destinations')
+    // Filter dropdown, not a browse list — needs every destination, so it asks for the app's
+    // practical ceiling rather than a paged default.
+    apiGet(`/api/destinations?limit=${PICKER_FULL_LIST_LIMIT}`)
       .then((res) => setDestinations(res.destinations))
       .catch(() => {
         // Filter chrome only — a failed destinations fetch shouldn't block browsing packages.

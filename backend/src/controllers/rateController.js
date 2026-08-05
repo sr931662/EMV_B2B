@@ -152,8 +152,10 @@ const importHotelRates = asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const listHotelVendors = asyncHandler(async (req, res) => {
+  const { includeArchived } = req.query;
+
   const contracts = await prisma.hotelVendor.findMany({
-    where: { hotelId: req.params.hotelId, archived: false },
+    where: { hotelId: req.params.hotelId, ...(includeArchived === 'true' ? {} : { archived: false }) },
     orderBy: [{ isPreferred: 'desc' }, { createdAt: 'asc' }],
     include: {
       vendor: { select: { id: true, name: true, defaultCurrencyCode: true } },
@@ -200,6 +202,16 @@ const archiveHotelVendor = asyncHandler(async (req, res) => {
   });
 
   res.status(200).json({ message: 'Contract archived', contract });
+});
+
+const restoreHotelVendor = asyncHandler(async (req, res) => {
+  const contract = await prisma.hotelVendor.update({
+    where: { id: req.params.contractId },
+    data: { archived: false },
+    include: { vendor: { select: { id: true, name: true } } },
+  });
+
+  res.status(200).json({ message: 'Contract restored', contract });
 });
 
 // ---------------------------------------------------------------------------
@@ -291,6 +303,7 @@ module.exports = {
   listHotelVendors,
   saveHotelVendor,
   archiveHotelVendor,
+  restoreHotelVendor,
   listActivityRates,
   saveActivityRates,
   priceActivity,

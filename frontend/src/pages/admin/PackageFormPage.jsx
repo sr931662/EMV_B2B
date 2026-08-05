@@ -17,6 +17,7 @@ import HotelPicker from '../../components/admin/HotelPicker';
 import LibraryPicker from '../../components/library/LibraryPicker';
 import { apiGet, apiPost, apiPatch, apiDownload, ApiError } from '../../api/client';
 import { slugify } from '../../lib/format';
+import { PICKER_FULL_LIST_LIMIT } from '../../lib/constants';
 
 const TAG_SUGGESTIONS = ['Family', 'Honeymoon', 'Luxury', 'Adventure', 'Budget', 'Beach', 'Romantic', 'Group'];
 
@@ -163,6 +164,10 @@ function PackageFormPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [gallery, setGallery] = useState(['']);
   const [tags, setTags] = useState([]);
+  // Starts from the old hardcoded list so the field looks the same before the library call
+  // resolves, then replaces itself with the curated Tags vocabulary (Library → Tags) once it does
+  // — that list is what an admin can actually add to now, this fallback is not.
+  const [tagSuggestions, setTagSuggestions] = useState(TAG_SUGGESTIONS);
 
   const [itinerary, setItinerary] = useState([]);
   const [itineraryTouched, setItineraryTouched] = useState(!isEdit);
@@ -175,6 +180,17 @@ function PackageFormPage() {
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    apiGet(`/api/library/lookup/search?type=PACKAGE_TAG&limit=${PICKER_FULL_LIST_LIMIT}`)
+      .then((res) => {
+        const names = res.options.map((o) => o.label).filter(Boolean);
+        if (names.length > 0) setTagSuggestions(names);
+      })
+      .catch(() => {
+        // Non-fatal: the hardcoded fallback list is still a usable set of suggestions.
+      });
+  }, []);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -214,10 +230,13 @@ function PackageFormPage() {
       setHotels([]);
       return;
     }
-    apiGet(`/api/day-templates?destinationId=${destinationId}`)
+    // Both are pickers for the builder below, not a browse table — they need every day template
+    // and hotel this destination has, so they ask for the app's practical ceiling rather than a
+    // paged default.
+    apiGet(`/api/day-templates?destinationId=${destinationId}&limit=${PICKER_FULL_LIST_LIMIT}`)
       .then((res) => setDayTemplates(res.dayTemplates))
       .catch(() => {});
-    apiGet(`/api/hotels?destinationId=${destinationId}`)
+    apiGet(`/api/hotels?destinationId=${destinationId}&limit=${PICKER_FULL_LIST_LIMIT}`)
       .then((res) => setHotels(res.hotels))
       .catch(() => {});
   }, [destinationId]);
@@ -526,7 +545,7 @@ function PackageFormPage() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <ChipInput label="Tags" values={tags} onChange={setTags} suggestions={TAG_SUGGESTIONS} />
+            <ChipInput label="Tags" values={tags} onChange={setTags} suggestions={tagSuggestions} />
             <RepeatableUrlList
               label="Gallery"
               purpose="packageGallery"

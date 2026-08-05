@@ -40,10 +40,13 @@ const submitForQuote = asyncHandler(async (req, res) => {
 
 const listQueue = asyncHandler(async (req, res) => {
   const filters = req.validatedQuery;
-  const payments = await paymentService.listForAdmin(filters);
+  const { payments, total, limit, offset } = await paymentService.listForAdmin(filters);
 
   res.status(200).json({
     count: payments.length,
+    total,
+    limit,
+    offset,
     filters: { status: filters.status ?? 'PENDING_VERIFICATION', ...filters },
     payments,
   });

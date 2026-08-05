@@ -15,6 +15,8 @@ import {
   Textarea,
   useToast,
 } from '../../components/ui';
+import BulkImportExport from '../../components/library/BulkImportExport';
+import DayTemplateEventEditor from '../../components/library/DayTemplateEventEditor';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 import { PICKER_FULL_LIST_LIMIT } from '../../lib/constants';
 
@@ -38,6 +40,9 @@ function DayTemplatesTab() {
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // Which template's day-by-day events are open for editing — null when none is.
+  const [eventsFor, setEventsFor] = useState(null);
 
   useEffect(() => {
     // This is a filter dropdown, not a browse list — it needs every destination that exists, so
@@ -179,10 +184,20 @@ function DayTemplatesTab() {
               checked={includeArchived}
               onChange={(e) => setIncludeArchived(e.target.checked)}
             />
-            <Button size="sm" onClick={openCreate}>
-              <Icon name="plus" size={14} />
-              New day template
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <BulkImportExport
+                label="Day templates"
+                exportUrl="/api/day-templates/export"
+                importUrl="/api/day-templates/import"
+                extraParams={{ destinationId }}
+                extraFields={{ destinationId }}
+                onImported={load}
+              />
+              <Button size="sm" onClick={openCreate}>
+                <Icon name="plus" size={14} />
+                New day template
+              </Button>
+            </div>
           </Card>
 
           {error && <Alert variant="danger">{error}</Alert>}
@@ -228,10 +243,16 @@ function DayTemplatesTab() {
                     </div>
                     <div className="flex flex-none gap-2">
                       {!t.archived && (
-                        <Button variant="outline" size="sm" onClick={() => openEdit(t)}>
-                          <Icon name="pencil" size={13} />
-                          Edit
-                        </Button>
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => setEventsFor(t)}>
+                            <Icon name="calendar" size={13} />
+                            Itinerary
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openEdit(t)}>
+                            <Icon name="pencil" size={13} />
+                            Edit
+                          </Button>
+                        </>
                       )}
                       {t.archived ? (
                         <Button variant="outline" size="sm" onClick={() => handleRestore(t)}>
@@ -248,6 +269,9 @@ function DayTemplatesTab() {
                   </div>
                 </Card>
               ))}
+              <Card bodyClassName="p-0">
+                <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} loading={loading} />
+              </Card>
             </div>
           )}
         </>
@@ -290,6 +314,21 @@ function DayTemplatesTab() {
             error={errors.description}
           />
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(eventsFor)}
+        onClose={() => setEventsFor(null)}
+        title={`Itinerary — ${eventsFor?.title ?? ''}`}
+        size="xl"
+      >
+        {eventsFor && (
+          <DayTemplateEventEditor
+            dayTemplateId={eventsFor.id}
+            destinationId={destinationId}
+            onClose={() => setEventsFor(null)}
+          />
+        )}
       </Modal>
     </div>
   );

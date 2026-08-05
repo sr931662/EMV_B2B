@@ -150,13 +150,20 @@ const restore = asyncHandler(async (req, res) => {
   res.status(200).json({ message: alreadyInState ? 'Was not archived' : 'Restored', row });
 });
 
+const hardDelete = asyncHandler(async (req, res) => {
+  await libraryService.hardDelete(req.params.entity, req.params.id, context(req));
+
+  res.status(200).json({ message: 'Permanently deleted' });
+});
+
 const history = asyncHandler(async (req, res) => {
   const config = libraryService.configFor(req.params.entity);
-  const entries = await auditService.history(config.entityType, req.params.id, {
+  const { entries, total, limit, offset } = await auditService.history(config.entityType, req.params.id, {
     limit: req.query.limit ? Number(req.query.limit) : undefined,
+    offset: req.query.offset ? Number(req.query.offset) : undefined,
   });
 
-  res.status(200).json({ count: entries.length, entries });
+  res.status(200).json({ count: entries.length, total, limit, offset, entries });
 });
 
 // ---------------------------------------------------------------------------
@@ -304,6 +311,7 @@ module.exports = {
   usage,
   archive,
   restore,
+  hardDelete,
   history,
   getTiers,
   setTiers,

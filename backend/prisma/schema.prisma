@@ -2085,6 +2085,11 @@ enum LookupType {
   ROOM_TYPE
   MEAL_PLAN
   ACTIVITY_CATEGORY
+  // A package's free-typed tags ("Family", "Honeymoon"...) had no library backing at all before
+  // this — just a hardcoded suggestion list in PackageFormPage and whatever a partner happened to
+  // type. Governing them the same way as every other vocabulary is what lets "Family" and "family"
+  // stop being two different tags by accident.
+  PACKAGE_TAG
 }
 
 model LookupItem {

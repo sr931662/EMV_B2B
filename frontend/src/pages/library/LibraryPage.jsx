@@ -35,6 +35,14 @@ const BASE_TABS = [
   // top-level tab since it is what a checklist requirement actually points at, distinct from a
   // visa product's own checklist/timeline editor at /admin/visa-config.
   { key: 'documents', label: 'Documents', icon: 'file' },
+  // Same reasoning: Inclusions, Exclusions and Tags are the three package-builder pickers most
+  // often reached for, but they were only findable via Master data → Vocabulary item → a "type"
+  // dropdown — a path nobody stumbles onto by accident. All three are `lookup` rows under the
+  // hood (Tags via the PACKAGE_TAG vocabulary), same as everything still under Master data; they
+  // just get a tab of their own because that is how someone building a package thinks of them.
+  { key: 'inclusions', label: 'Inclusions', icon: 'check-circle' },
+  { key: 'exclusions', label: 'Exclusions', icon: 'x-circle' },
+  { key: 'tags', label: 'Tags', icon: 'star' },
   { key: 'master-data', label: 'Master data', icon: 'layers' },
 ];
 
@@ -73,6 +81,15 @@ function LibraryPage() {
       {tab === 'hotels' && <HotelsTab />}
       {tab === 'packages' && isAdmin && <PackagesTab />}
       {tab === 'documents' && <LibraryShellPage embedded fixedEntity="documentType" />}
+      {tab === 'inclusions' && (
+        <LibraryShellPage embedded fixedEntity="lookup" fixedLookupType="INCLUSION" itemLabel="Inclusion" />
+      )}
+      {tab === 'exclusions' && (
+        <LibraryShellPage embedded fixedEntity="lookup" fixedLookupType="EXCLUSION" itemLabel="Exclusion" />
+      )}
+      {tab === 'tags' && (
+        <LibraryShellPage embedded fixedEntity="lookup" fixedLookupType="PACKAGE_TAG" itemLabel="Tag" />
+      )}
       {tab === 'master-data' && <LibraryShellPage embedded />}
     </div>
   );

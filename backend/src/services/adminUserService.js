@@ -12,11 +12,16 @@ const STAFF_SELECT = {
 };
 
 /** Admin + data_feeder only — partners are managed at /api/admin/agencies. */
-async function list({ includeArchived = false } = {}) {
+async function list({ includeArchived = false, limit = 50, offset = 0 } = {}) {
   const where = { role: { in: ['admin', 'data_feeder'] } };
   if (!includeArchived) where.archived = false;
 
-  return prisma.user.findMany({ where, select: STAFF_SELECT, orderBy: { createdAt: 'desc' } });
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({ where, select: STAFF_SELECT, orderBy: { createdAt: 'desc' }, take: limit, skip: offset }),
+    prisma.user.count({ where }),
+  ]);
+
+  return { users, total, limit, offset };
 }
 
 /** Thin wrapper over the existing authService helper — no OTP, verified on creation. */

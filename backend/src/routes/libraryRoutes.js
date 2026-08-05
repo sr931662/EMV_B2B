@@ -82,4 +82,9 @@ router.patch('/:entity/:id', roleMiddleware(...CAN_WRITE_LIBRARY), controller.up
 router.post('/:entity/:id/archive', roleMiddleware('admin'), controller.archive);
 router.post('/:entity/:id/restore', roleMiddleware('admin'), controller.restore);
 
+// Permanent delete — a distinct path from archive on purpose, so nothing can reach it by
+// accidentally reusing the archive verb/body shape. Only ever legal on a row that is already
+// archived and currently unreferenced; libraryService.hardDelete enforces both.
+router.delete('/:entity/:id/permanent', roleMiddleware('admin'), controller.hardDelete);
+
 module.exports = router;

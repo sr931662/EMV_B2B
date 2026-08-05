@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Badge, Button, Icon, Spinner } from '../ui';
 import { apiGet, apiPost, ApiError } from '../../api/client';
 
@@ -48,9 +49,11 @@ function LibraryPicker({
   const [creating, setCreating] = useState(false);
   const [pickerError, setPickerError] = useState(null);
   const [highlight, setHighlight] = useState(0);
+  const [coords, setCoords] = useState(null);
 
   const boxRef = useRef(null);
   const inputRef = useRef(null);
+  const dropdownRef = useRef(null);
 
   const ids = multiple ? value ?? [] : value ? [value] : [];
 
@@ -116,15 +119,52 @@ function LibraryPicker({
     return () => clearTimeout(timer);
   }, [query, open, runSearch]);
 
-  // Close on an outside click, so an open list does not sit over the rest of the form.
+  // Close on an outside click, so an open list does not sit over the rest of the form. The
+  // dropdown itself is portalled (see below) and so is no longer a DOM descendant of boxRef —
+  // a click inside it has to be excluded explicitly or it would register as "outside" and the
+  // list would close the instant anyone tried to click an option.
   useEffect(() => {
     if (!open) return undefined;
 
     const onDown = (e) => {
-      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+      if (boxRef.current?.contains(e.target)) return;
+      if (dropdownRef.current?.contains(e.target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  /**
+   * Positions the dropdown from the trigger's own bounding rect rather than relying on CSS
+   * `position: absolute` inside the normal document flow.
+   *
+   * The picker is used inside Cards and Modals, both of which clip overflow for their own
+   * rounded-corner reasons — an absolutely-positioned child of either one gets its dropdown
+   * silently cut off (visually "stuck behind" whatever comes after it) no matter how high its
+   * z-index goes, because overflow clipping happens before stacking order is ever considered.
+   * Portalling to document.body (like Modal already does) and computing fixed coordinates here
+   * is the only way out of that ancestor's clipping box.
+   */
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const updatePosition = () => {
+      const rect = boxRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setCoords({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    };
+
+    updatePosition();
+    // Capture phase so a scroll inside any ancestor container (not just the window) still
+    // triggers a reposition — a scrolled Card would otherwise leave the dropdown floating over
+    // the wrong spot.
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
   }, [open]);
 
   /**
@@ -272,11 +312,17 @@ function LibraryPicker({
           {loading ? <Spinner size="sm" /> : <Icon name="search" size={15} />}
         </span>
 
-        {open && (
+        {open && coords && createPortal(
           <div
+            ref={dropdownRef}
             id={`${entity}-options`}
             role="listbox"
-            className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white py-1 shadow-lg"
+            style={{ top: coords.top, left: coords.left, width: coords.width }}
+            // Fixed, not absolute: this panel is portalled to document.body, so it has no
+            // positioned ancestor to be "absolute" relative to, and fixed coordinates are what
+            // updatePosition above computes. z-[60] sits above Modal's z-50 — a picker used
+            // inside a modal (e.g. the Library's own edit forms) still needs its list on top.
+            className="fixed z-[60] max-h-72 overflow-y-auto rounded-lg border border-neutral-200 bg-white py-1 shadow-lg"
           >
             {options.map((option, i) => {
               const isSelected = ids.includes(option.id);
@@ -331,7 +377,8 @@ function LibraryPicker({
                 )}
               </div>
             )}
-          </div>
+          </div>,
+          document.body
         )}
       </div>
 

@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { paginationFields } = require('./paginationSchema');
 
 const idParamSchema = z.object({ id: z.uuid('id must be a valid UUID') });
 
@@ -8,6 +9,7 @@ const listStaffUsersSchema = z
       .enum(['true', 'false'], { error: "includeArchived must be 'true' or 'false'" })
       .optional()
       .transform((v) => v === 'true'),
+    ...paginationFields,
   })
   .strict();
 

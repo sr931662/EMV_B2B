@@ -442,4 +442,82 @@ async function restore(entity, id, { user, reason, ip } = {}) {
   return { row, alreadyInState: false };
 }
 
-module.exports = { search, list, getById, create, update, usage, archive, restore, configFor };
+/**
+ * Permanently removes an archived row — the one real exception to locked rule 1 (soft-delete
+ * everywhere), and deliberately the narrowest possible one: allowed ONLY on a row that is already
+ * archived (a deliberate, prior decision to withdraw it) AND currently unreferenced by anything
+ * `usage()` knows to check. Archive protects draft work from an accidental click; this exists for
+ * the row that turns out to be pure junk — a duplicate typed twice, a test entry — where keeping
+ * it archived forever just accumulates clutter nobody will ever restore.
+ *
+ * Still recorded in the audit trail (action DELETE, `after: null`) even though the row itself is
+ * gone — AuditLog.entityId is a plain string, not a foreign key, so the history survives its
+ * subject exactly the way it is meant to for an archived-then-restored row.
+ */
+async function hardDelete(entity, id, { user, reason, ip } = {}) {
+  const config = configFor(entity);
+  const before = await getById(entity, id);
+
+  if (!before.archived) {
+    throw ApiError.badRequest('Archive it first — only an already-archived row can be permanently deleted.');
+  }
+
+  const { references, total } = await usage(entity, id);
+
+  if (total > 0) {
+    const summary = references.map((r) => `${r.count} ${r.type}`).join(', ');
+    throw ApiError.conflict(`Cannot delete: still referenced by ${summary}. Detach it first.`);
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Nothing meaningful to preserve in a link once the row it points at no longer exists.
+      await tx.entityLink.deleteMany({
+        where: {
+          OR: [
+            { itemType: config.entityType, itemId: id },
+            { ownerType: config.entityType, ownerId: id },
+          ],
+        },
+      });
+
+      await tx[config.model].delete({ where: idWhere(config, id) });
+
+      await auditService.record(tx, {
+        entityType: config.entityType,
+        entityId: id,
+        action: 'DELETE',
+        before,
+        after: null,
+        actor: user,
+        reason,
+        ip,
+      });
+    });
+  } catch (err) {
+    // The usage() check above covers every dependency this registry knows to look for, but the
+    // database's own onDelete: Restrict is the real backstop — a relation added to the schema
+    // without a matching usage() entry would otherwise fail with a raw constraint error instead
+    // of the clean message above.
+    //
+    // Two different shapes reach here for the same underlying reason: Prisma raises its own
+    // PrismaClientKnownRequestError (code P2003) when IT catches the missing relation first, but
+    // when Postgres's RESTRICT trigger is what actually fires — the case that matters here, since
+    // every one of this registry's relations is exactly that — it comes back as a
+    // PrismaClientUnknownRequestError with no `.code` at all, just Postgres's own message text
+    // buried in `.message`. Matching on the message is the only way to catch that one.
+    const isForeignKeyRestrict =
+      err.code === 'P2003' || /violates RESTRICT setting of foreign key constraint/i.test(err.message ?? '');
+
+    if (isForeignKeyRestrict) {
+      throw ApiError.conflict(
+        'Cannot delete: still referenced by something this check does not know about. Nothing was changed.'
+      );
+    }
+    throw err;
+  }
+
+  return { deleted: true };
+}
+
+module.exports = { search, list, getById, create, update, usage, archive, restore, hardDelete, configFor };

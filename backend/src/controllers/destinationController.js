@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const destinationService = require('../services/destinationService');
+const bulkDataService = require('../services/bulkDataService');
 
 // Thin: bodies/params/query are already validated, thrown errors are rendered globally.
 
@@ -52,4 +53,29 @@ const restore = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { create, list, getOne, update, archive, restore };
+const exportAll = asyncHandler(async (req, res) => {
+  const { includeArchived, countryId } = req.query;
+  const { buffer, filename } = await bulkDataService.exportDestinations({
+    includeArchived: includeArchived === 'true',
+    countryId: countryId || undefined,
+  });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.status(200).send(buffer);
+});
+
+const importAll = asyncHandler(async (req, res) => {
+  const result = await bulkDataService.importDestinations(req.file.buffer, {
+    user: req.user,
+    reason: req.body?.reason,
+  });
+
+  res.status(200).json({
+    message: `${result.created} created, ${result.updated} updated, ${result.skipped} blank row(s) skipped` +
+      (result.errors.length ? `, ${result.errors.length} row(s) failed` : ''),
+    ...result,
+  });
+});
+
+module.exports = { create, list, getOne, update, archive, restore, exportAll, importAll };

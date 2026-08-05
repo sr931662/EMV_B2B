@@ -161,12 +161,19 @@ async function record(client, { entityType, entityId, action, before, after, act
  * caller almost always wants the recent ones.
  */
 async function history(entityType, entityId, { limit = 50, offset = 0 } = {}) {
-  return prisma.auditLog.findMany({
-    where: { entityType, entityId },
-    orderBy: { createdAt: 'desc' },
-    take: Math.min(limit, 200),
-    skip: offset,
-  });
+  const where = { entityType, entityId };
+
+  const [entries, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit, 200),
+      skip: offset,
+    }),
+    prisma.auditLog.count({ where }),
+  ]);
+
+  return { entries, total, limit, offset };
 }
 
 /** Cross-entity search — "everything this user changed", "every price change this month". */

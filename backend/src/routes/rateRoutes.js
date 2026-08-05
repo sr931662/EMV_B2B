@@ -38,6 +38,7 @@ router.get('/hotels/:hotelId/price', roleMiddleware(...CAN_READ_LIBRARY), contro
 router.get('/hotels/:hotelId/vendors', roleMiddleware(...CAN_READ_LIBRARY), controller.listHotelVendors);
 router.put('/hotels/:hotelId/vendors', roleMiddleware('admin'), controller.saveHotelVendor);
 router.delete('/hotel-vendors/:contractId', roleMiddleware('admin'), controller.archiveHotelVendor);
+router.post('/hotel-vendors/:contractId/restore', roleMiddleware('admin'), controller.restoreHotelVendor);
 
 // Activity rate cards.
 router.get(

@@ -18,6 +18,7 @@ import {
 import LibraryPicker from '../../components/library/LibraryPicker';
 import RateCardEditor from '../../components/library/RateCardEditor';
 import HotelVendorEditor from '../../components/library/HotelVendorEditor';
+import BulkImportExport from '../../components/library/BulkImportExport';
 import RepeatableUrlList from '../../components/admin/RepeatableUrlList';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '../../api/client';
 
@@ -231,10 +232,20 @@ function HotelsTab() {
               checked={includeArchived}
               onChange={(e) => setIncludeArchived(e.target.checked)}
             />
-            <Button size="sm" onClick={openCreate}>
-              <Icon name="plus" size={14} />
-              New hotel
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <BulkImportExport
+                label="Hotels"
+                exportUrl="/api/hotels/export"
+                importUrl="/api/hotels/import"
+                extraParams={{ destinationId }}
+                extraFields={{ destinationId }}
+                onImported={load}
+              />
+              <Button size="sm" onClick={openCreate}>
+                <Icon name="plus" size={14} />
+                New hotel
+              </Button>
+            </div>
           </Card>
 
           {error && <Alert variant="danger">{error}</Alert>}

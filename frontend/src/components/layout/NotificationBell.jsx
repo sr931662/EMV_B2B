@@ -5,6 +5,7 @@ import { formatDateTime } from '../../lib/format';
 import { cn } from '../../lib/cn';
 
 const POLL_INTERVAL_MS = 60_000;
+const PAGE_SIZE = 20;
 
 /**
  * Topbar bell: unread badge (polled), click-to-open panel, mark read/all-read, dismiss.
@@ -20,7 +21,9 @@ function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [notificationsTotal, setNotificationsTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const panelRef = useRef(null);
 
   const refreshUnreadCount = () => {
@@ -57,10 +60,24 @@ function NotificationBell() {
 
   const loadNotifications = () => {
     setLoading(true);
-    apiGet('/api/notifications')
-      .then((res) => setNotifications(res.notifications))
+    apiGet(`/api/notifications?limit=${PAGE_SIZE}&offset=0`)
+      .then((res) => {
+        setNotifications(res.notifications);
+        setNotificationsTotal(res.total);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  const loadMore = () => {
+    setLoadingMore(true);
+    apiGet(`/api/notifications?limit=${PAGE_SIZE}&offset=${notifications.length}`)
+      .then((res) => {
+        setNotifications((prev) => [...prev, ...res.notifications]);
+        setNotificationsTotal(res.total);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
   };
 
   const togglePanel = () => {
@@ -206,6 +223,17 @@ function NotificationBell() {
                   </button>
                 </div>
               ))
+            )}
+
+            {!loading && notifications.length > 0 && notifications.length < notificationsTotal && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="flex w-full items-center justify-center gap-2 border-t border-neutral-150 py-2.5 text-[12.5px] font-medium text-primary-600 transition-colors hover:bg-neutral-50 hover:text-primary-700 disabled:text-neutral-400"
+              >
+                {loadingMore ? <Spinner size="sm" /> : `Load more (${notificationsTotal - notifications.length} more)`}
+              </button>
             )}
           </div>
         </div>
