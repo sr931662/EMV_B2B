@@ -6,6 +6,7 @@ import DayTemplatesTab from './DayTemplatesTab';
 import HotelsTab from './HotelsTab';
 import PackagesTab from './PackagesTab';
 import LibraryShellPage from '../admin/LibraryShellPage';
+import AdminVisaConfigPage from '../admin/AdminVisaConfigPage';
 
 /**
  * The Library — the master data every other module reads from.
@@ -50,11 +51,18 @@ function LibraryPage() {
   const [tab, setTab] = useState('destinations');
   const { user } = useAuth();
 
-  // Packages carry raw wholesale pricing (Package.rawPrice, the EMV quote PDF). roles.js is
-  // explicit that data_feeder has no package access "not even read" — the intern role is scoped
+  // Packages carry raw wholesale pricing (Package.adultRawPrice/childRawPrice, the EMV quote
+  // PDF). roles.js is explicit that data_feeder has no package access "not even read" — the
+  // intern role is scoped
   // to the library only. The Packages tab is therefore admin-only, unlike every other tab here,
   // which every library-capable role can browse.
   const isAdmin = user?.role === 'admin';
+  // Visa products/countries carry the same wholesale pricing sensitivity as packages — they run
+  // under CAN_READ_VISA_CONFIG/CAN_WRITE_VISA_CONFIG (admin+partner read, admin write), a
+  // DELIBERATELY narrower boundary than this page's own CAN_READ_LIBRARY/CAN_WRITE_LIBRARY (which
+  // include data_feeder). Embedding AdminVisaConfigPage's own component here does not change that
+  // boundary at all — its own routes still enforce it — but the TAB itself is admin-only so a
+  // data_feeder never even sees it exists, same reasoning as the Packages tab beside it.
   const tabs = useMemo(() => {
     if (!isAdmin) return BASE_TABS;
 
@@ -62,6 +70,7 @@ function LibraryPage() {
     return [
       ...BASE_TABS.slice(0, insertAt),
       { key: 'packages', label: 'Packages', icon: 'package' },
+      { key: 'visa-products', label: 'Visa Products', icon: 'plane' },
       ...BASE_TABS.slice(insertAt),
     ];
   }, [isAdmin]);
@@ -80,6 +89,7 @@ function LibraryPage() {
       {tab === 'day-templates' && <DayTemplatesTab />}
       {tab === 'hotels' && <HotelsTab />}
       {tab === 'packages' && isAdmin && <PackagesTab />}
+      {tab === 'visa-products' && isAdmin && <AdminVisaConfigPage embedded />}
       {tab === 'documents' && <LibraryShellPage embedded fixedEntity="documentType" />}
       {tab === 'inclusions' && (
         <LibraryShellPage embedded fixedEntity="lookup" fixedLookupType="INCLUSION" itemLabel="Inclusion" />

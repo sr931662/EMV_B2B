@@ -4,16 +4,22 @@ const asyncHandler = require('../utils/asyncHandler');
 const quoteService = require('../services/quoteService');
 const { quotePdfDownloadName } = require('../services/pdfService');
 
-// Pricing block shown on create/detail/update. rawPriceAtQuote is the frozen basis every
-// number here derives from; livePackageRawPrice is shown alongside purely for context.
+// Pricing block shown on create/detail/update. rawPriceAtQuote/childRawPriceAtQuote are the
+// frozen per-head basis every number here derives from; livePackage* is shown alongside purely
+// for context.
 function pricingOf(quote) {
   return {
     rawPriceAtQuote: quote.rawPriceAtQuote,
+    childRawPriceAtQuote: quote.childRawPriceAtQuote,
+    adults: quote.adults,
+    children: quote.children,
     markupAmount: quote.markupAmount,
     sellingPrice: quote.sellingPrice,
-    livePackageRawPrice: quote.package.rawPrice,
-    rawPriceChangedSinceQuote: quoteService.rawPriceDrifted(quote, quote.package.rawPrice),
-    formula: 'sellingPrice = rawPriceAtQuote + markupAmount (frozen at quote creation)',
+    livePackageRawPrice: quote.package.adultRawPrice,
+    livePackageChildRawPrice: quote.package.childRawPrice,
+    rawPriceChangedSinceQuote: quoteService.rawPriceDrifted(quote, quote.package),
+    formula:
+      'sellingPrice = (adults × rawPriceAtQuote) + (children × childRawPriceAtQuote) + markupAmount (frozen at quote creation)',
   };
 }
 

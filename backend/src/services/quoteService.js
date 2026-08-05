@@ -32,7 +32,8 @@ const QUOTE_DETAIL_INCLUDE = {
       title: true,
       days: true,
       nights: true,
-      rawPrice: true,
+      adultRawPrice: true,
+      childRawPrice: true,
       inclusions: true,
       exclusions: true,
       gallery: true,
@@ -104,16 +105,23 @@ async function getForUser(id, user, { include = QUOTE_DETAIL_INCLUDE } = {}) {
 }
 
 /**
- * selling price = raw EMV price + partner markup (locked rule 5).
+ * selling price = adults × adultRawPrice + children × childRawPrice + partner markup
+ * (locked rule 5, extended to per-head — infants are never charged, same convention visa
+ * requests use for a passenger type that doesn't move the price).
  *
- * `rawPrice` here is always the quote's OWN `rawPriceAtQuote` snapshot, never the live
- * Package.rawPrice — see freezeRawPrice below.
+ * `adultRawPrice`/`childRawPrice` here are always the quote's OWN `rawPriceAtQuote`/
+ * `childRawPriceAtQuote` snapshots, never the live Package fields — see freezeRawPrice below.
+ * Mirrors visaRequestService.computeSellingPrice exactly, same reasoning: a per-head price times
+ * a headcount, plus a flat markup.
  *
  * Uses Prisma.Decimal, not JS floats: 100000.10 + 15000.20 in binary floating point is not
  * reliably 115000.30, and this value is what a customer is invoiced.
  */
-function computeSellingPrice(rawPrice, markupAmount) {
-  return new Prisma.Decimal(rawPrice).plus(new Prisma.Decimal(markupAmount));
+function computeSellingPrice({ adultRawPrice, childRawPrice, adults, children, markupAmount }) {
+  return new Prisma.Decimal(adultRawPrice)
+    .times(adults)
+    .plus(new Prisma.Decimal(childRawPrice).times(children))
+    .plus(new Prisma.Decimal(markupAmount));
 }
 
 /**
@@ -121,10 +129,13 @@ function computeSellingPrice(rawPrice, markupAmount) {
  *
  * INFORMATIONAL ONLY. Nothing computes from this — it exists so the UI can tell an admin or
  * partner "the underlying package now costs something different", without any number on the
- * quote moving. All maths uses quote.rawPriceAtQuote.
+ * quote moving. All maths uses quote.rawPriceAtQuote/childRawPriceAtQuote.
  */
-function rawPriceDrifted(quote, livePackageRawPrice) {
-  return !new Prisma.Decimal(quote.rawPriceAtQuote).equals(new Prisma.Decimal(livePackageRawPrice));
+function rawPriceDrifted(quote, livePackage) {
+  return (
+    !new Prisma.Decimal(quote.rawPriceAtQuote).equals(new Prisma.Decimal(livePackage.adultRawPrice)) ||
+    !new Prisma.Decimal(quote.childRawPriceAtQuote).equals(new Prisma.Decimal(livePackage.childRawPrice))
+  );
 }
 
 async function loadSellablePackage(packageId) {
@@ -196,8 +207,15 @@ async function create(data, user) {
 
   // Freeze the wholesale basis at this instant. From here on the quote's economics are
   // independent of the package: repricing it later cannot move this quote's numbers.
-  const rawPriceAtQuote = new Prisma.Decimal(pkg.rawPrice);
-  const sellingPrice = computeSellingPrice(rawPriceAtQuote, markupAmount);
+  const rawPriceAtQuote = new Prisma.Decimal(pkg.adultRawPrice);
+  const childRawPriceAtQuote = new Prisma.Decimal(pkg.childRawPrice);
+  const sellingPrice = computeSellingPrice({
+    adultRawPrice: rawPriceAtQuote,
+    childRawPrice: childRawPriceAtQuote,
+    adults: lead.adults,
+    children: lead.children,
+    markupAmount,
+  });
 
   // The TCS rate is frozen alongside the price for the same reason: a customer holding an invoice
   // must not have it re-taxed when policy changes. Reading the live setting here is the last time
@@ -218,6 +236,7 @@ async function create(data, user) {
         ...lead,
         quoteNumber: generateQuoteNumber(),
         rawPriceAtQuote,
+        childRawPriceAtQuote,
         markupAmount,
         sellingPrice,
         tcsRate,
@@ -231,7 +250,7 @@ async function create(data, user) {
       quoteId: quote.id,
       packageId,
       travelDate: quote.travelDate,
-      pricing: { rawPriceAtQuote, markupAmount, sellingPrice, tcsRate, tcsAmount },
+      pricing: { rawPriceAtQuote, childRawPriceAtQuote, markupAmount, sellingPrice, tcsRate, tcsAmount },
     });
 
     return quote;
@@ -312,15 +331,21 @@ async function update(id, data, user) {
 
   const updateData = { ...data };
 
-  // Recompute against the quote's OWN frozen rawPriceAtQuote — never the package's current
-  // price. An admin repricing the package must not change what this quote sells for, even
-  // when the partner edits their markup afterwards.
-  if (data.markupAmount !== undefined) {
-    updateData.sellingPrice = computeSellingPrice(existing.rawPriceAtQuote, data.markupAmount);
+  // Recompute against the quote's OWN frozen rawPriceAtQuote/childRawPriceAtQuote — never the
+  // package's current price. An admin repricing the package must not change what this quote
+  // sells for, even when the partner edits their markup or headcount afterwards.
+  if (data.markupAmount !== undefined || data.adults !== undefined || data.children !== undefined) {
+    updateData.sellingPrice = computeSellingPrice({
+      adultRawPrice: existing.rawPriceAtQuote,
+      childRawPrice: existing.childRawPriceAtQuote,
+      adults: data.adults ?? existing.adults,
+      children: data.children ?? existing.children,
+      markupAmount: data.markupAmount ?? existing.markupAmount,
+    });
   }
 
   // Informational only, computed from the live package for the caller's benefit.
-  const rawPriceChangedSinceQuote = rawPriceDrifted(existing, existing.package.rawPrice);
+  const rawPriceChangedSinceQuote = rawPriceDrifted(existing, existing.package);
 
   await prisma.quote.update({ where: { id }, data: updateData });
   await refreshQuotePdf(id);

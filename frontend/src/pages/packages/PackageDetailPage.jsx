@@ -209,13 +209,18 @@ function PackageDetailPage() {
         >
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
-              TravNexa cost
+              TravNexa cost / adult
             </p>
             <p className="mt-0.5 text-[28px] font-semibold leading-tight tracking-tight text-neutral-900 tabular-nums">
-              {formatCurrency(pkg.rawPrice)}
+              {formatCurrency(pkg.adultRawPrice)}
+            </p>
+            <p className="mt-1 text-[13px] font-medium text-neutral-600 tabular-nums">
+              {Number(pkg.childRawPrice) > 0
+                ? `${formatCurrency(pkg.childRawPrice)} / child`
+                : 'Children travel free'}
             </p>
             <p className="mt-1.5 text-[12px] leading-relaxed text-neutral-500">
-              Your wholesale cost — add your own markup when you generate the quote.
+              Your wholesale cost per head — add your own markup when you generate the quote.
             </p>
           </div>
 

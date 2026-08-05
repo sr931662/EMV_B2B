@@ -195,7 +195,13 @@ function QuoteForm({ pkg, initialValues, submitLabel, onSubmit }) {
           error={errors.markupAmount}
           hint={!errors.markupAmount ? 'Added on top of the TravNexa cost — this is your profit.' : undefined}
         />
-        <PriceCalcPanel rawPrice={pkg.rawPrice} markupAmount={form.markupAmount} />
+        <PriceCalcPanel
+          adultRawPrice={pkg.adultRawPrice}
+          childRawPrice={pkg.childRawPrice}
+          adults={form.adults}
+          childCount={form.children}
+          markupAmount={form.markupAmount}
+        />
       </div>
 
       <div className="flex flex-col gap-4">

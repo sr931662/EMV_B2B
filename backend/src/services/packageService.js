@@ -39,7 +39,8 @@ const SUMMARY_SELECT = {
   title: true,
   days: true,
   nights: true,
-  rawPrice: true,
+  adultRawPrice: true,
+  childRawPrice: true,
   tags: true,
   gallery: true,
   emvQuotePdfPath: true,
@@ -254,7 +255,8 @@ async function create(data) {
     title,
     days,
     nights,
-    rawPrice,
+    adultRawPrice,
+    childRawPrice,
     inclusions,
     exclusions,
     gallery,
@@ -282,7 +284,8 @@ async function create(data) {
         title,
         days,
         nights,
-        rawPrice,
+        adultRawPrice,
+        childRawPrice,
         inclusions,
         exclusions,
         gallery,
@@ -440,10 +443,11 @@ async function list(filters = {}) {
   if (tag) where.tags = { has: tag };
   if (search) where.title = { contains: search, mode: 'insensitive' };
 
+  // Filters against the adult rate — the "starting from" number a partner compares packages by.
   if (minPrice !== undefined || maxPrice !== undefined) {
-    where.rawPrice = {};
-    if (minPrice !== undefined) where.rawPrice.gte = minPrice;
-    if (maxPrice !== undefined) where.rawPrice.lte = maxPrice;
+    where.adultRawPrice = {};
+    if (minPrice !== undefined) where.adultRawPrice.gte = minPrice;
+    if (maxPrice !== undefined) where.adultRawPrice.lte = maxPrice;
   }
 
   if (minDays !== undefined || maxDays !== undefined) {

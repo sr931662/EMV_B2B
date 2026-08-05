@@ -641,7 +641,12 @@ function DocumentModal({ open, onClose, productId, editing, onSaved }) {
   );
 }
 
-function AdminVisaConfigPage() {
+/**
+ * @param embedded Renders without its own page heading, for when it sits inside the Library's
+ *                 tabs rather than being reached as its own /admin/visa-config page. Both routes
+ *                 still work — this component didn't move, it just gained a second entry point.
+ */
+function AdminVisaConfigPage({ embedded = false }) {
   const [countries, setCountries] = useState([]);
   const [countriesTotal, setCountriesTotal] = useState(0);
   const [countriesPage, setCountriesPage] = useState(1);
@@ -808,9 +813,11 @@ function AdminVisaConfigPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">
-        Visa Configuration
-      </h1>
+      {!embedded && (
+        <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-neutral-900 sm:text-[26px]">
+          Visa Configuration
+        </h1>
+      )}
 
       <VisaSubNav />
 

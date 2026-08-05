@@ -258,6 +258,9 @@ function QuoteDetailPage() {
 
       <PricingBreakdown
         rawPriceAtQuote={pricing.rawPriceAtQuote}
+        childRawPriceAtQuote={pricing.childRawPriceAtQuote}
+        adults={pricing.adults}
+        childCount={pricing.children}
         markupAmount={pricing.markupAmount}
         sellingPrice={pricing.sellingPrice}
       />
@@ -265,7 +268,11 @@ function QuoteDetailPage() {
       {editing ? (
         <Card title="Edit quote">
           <QuoteForm
-            pkg={{ ...quote.package, rawPrice: quote.rawPriceAtQuote }}
+            pkg={{
+              ...quote.package,
+              adultRawPrice: quote.rawPriceAtQuote,
+              childRawPrice: quote.childRawPriceAtQuote,
+            }}
             initialValues={{
               leadName: quote.leadName,
               contactNumber: quote.contactNumber,

@@ -596,8 +596,10 @@ model Package {
   days          Int
   nights        Int
 
-  // Raw EMV wholesale price. Never includes partner markup.
-  rawPrice Decimal @db.Decimal(12, 2)
+  // Raw EMV wholesale price, per head. Never includes partner markup. childRawPrice defaults to
+  // 0 — "children travel free" — same reasoning as VisaProduct.childFee, which this mirrors.
+  adultRawPrice Decimal @db.Decimal(12, 2)
+  childRawPrice Decimal @default(0) @db.Decimal(12, 2)
 
   inclusions String   @db.Text
   exclusions String   @db.Text
@@ -848,13 +850,18 @@ model Quote {
   infants         Int      @default(0)
   specialRequests String?  @db.Text
 
-  // The package's rawPrice FROZEN at the instant this quote was created — the same
-  // copy-on-select principle as rule 2, applied to price. All selling-price maths uses this,
-  // never the live Package.rawPrice, so an admin repricing a package can never move the
-  // numbers on a quote a partner has already given their customer.
-  rawPriceAtQuote Decimal @db.Decimal(12, 2)
+  // The package's per-head raw prices FROZEN at the instant this quote was created — the same
+  // copy-on-select principle as rule 2, applied to price. All selling-price maths uses these,
+  // never the live Package.adultRawPrice/childRawPrice, so an admin repricing a package can never
+  // move the numbers on a quote a partner has already given their customer. Field kept named
+  // `rawPriceAtQuote` (not renamed to `adultRawPriceAtQuote`) because it predates per-head pricing
+  // and is read in enough places that renaming it would be pure churn — it now specifically means
+  // the ADULT portion; childRawPriceAtQuote is the new sibling.
+  rawPriceAtQuote      Decimal @db.Decimal(12, 2)
+  childRawPriceAtQuote Decimal @default(0) @db.Decimal(12, 2)
 
-  // sellingPrice = rawPriceAtQuote + markupAmount (locked rule 5).
+  // sellingPrice = rawPriceAtQuote * adults + childRawPriceAtQuote * children + markupAmount
+  // (locked rule 5, extended to per-head — see quoteService.computeSellingPrice).
   markupAmount Decimal @db.Decimal(12, 2)
   sellingPrice Decimal @db.Decimal(12, 2)
 

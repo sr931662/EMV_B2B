@@ -22,8 +22,8 @@ const moneyField = (label) =>
 /**
  * Fields the server owns. A client may send them — we drop them rather than 400, so a caller
  * that round-trips a quote object back to us does not get a confusing error. sellingPrice in
- * particular is always recomputed from the package's rawPrice + markupAmount (locked rule 5);
- * a client-supplied value is never read.
+ * particular is always recomputed from the package's per-head adultRawPrice/childRawPrice +
+ * markupAmount (locked rule 5); a client-supplied value is never read.
  */
 const SERVER_OWNED = [
   'id',

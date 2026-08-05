@@ -134,7 +134,7 @@ function AdminPackagesListPage() {
               <Table.HeadCell>Title</Table.HeadCell>
               <Table.HeadCell>Destination</Table.HeadCell>
               <Table.HeadCell align="right">Duration</Table.HeadCell>
-              <Table.HeadCell align="right">TravNexa cost</Table.HeadCell>
+              <Table.HeadCell align="right">TravNexa cost / adult</Table.HeadCell>
               <Table.HeadCell>Status</Table.HeadCell>
               <Table.HeadCell align="right">
                 <span className="sr-only">Actions</span>
@@ -149,7 +149,7 @@ function AdminPackagesListPage() {
                     {pkg.days}D / {pkg.nights}N
                   </Table.Cell>
                   <Table.Cell align="right" strong>
-                    {formatCurrency(pkg.rawPrice)}
+                    {formatCurrency(pkg.adultRawPrice)}
                   </Table.Cell>
                   <Table.Cell>
                     {pkg.archived ? (

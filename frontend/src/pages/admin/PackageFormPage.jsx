@@ -21,7 +21,15 @@ import { PICKER_FULL_LIST_LIMIT } from '../../lib/constants';
 
 const TAG_SUGGESTIONS = ['Family', 'Honeymoon', 'Luxury', 'Adventure', 'Budget', 'Beach', 'Romantic', 'Group'];
 
-const EMPTY_FORM = { title: '', days: '', nights: '', rawPrice: '', inclusions: '', exclusions: '' };
+const EMPTY_FORM = {
+  title: '',
+  days: '',
+  nights: '',
+  adultRawPrice: '',
+  childRawPrice: '',
+  inclusions: '',
+  exclusions: '',
+};
 
 /**
  * Turns chosen vocabulary items into the prose the package stores.
@@ -48,8 +56,8 @@ function composeLines(existingText, items) {
 /**
  * What the selected hotels actually cost, from their rate cards.
  *
- * The payoff of Phase 5, and the reason rate cards were worth building. `rawPrice` has always been a
- * number someone typed from a spreadsheet open in another window; this prices the same hotels
+ * The payoff of Phase 5, and the reason rate cards were worth building. `adultRawPrice` has always
+ * been a number someone typed from a spreadsheet open in another window; this prices the same hotels
  * through the same resolver a quote uses, so the two cannot disagree.
  *
  * Deliberately an ESTIMATE and not an auto-fill. A package price includes transfers, activities,
@@ -211,7 +219,8 @@ function PackageFormPage() {
           title: pkg.title,
           days: String(pkg.days),
           nights: String(pkg.nights),
-          rawPrice: String(pkg.rawPrice),
+          adultRawPrice: String(pkg.adultRawPrice),
+          childRawPrice: String(pkg.childRawPrice),
           inclusions: pkg.inclusions,
           exclusions: pkg.exclusions,
         });
@@ -285,7 +294,8 @@ function PackageFormPage() {
     if (!form.title.trim()) e.title = 'Required';
     if (!form.days || Number(form.days) < 1) e.days = 'Required, at least 1';
     if (form.nights === '' || Number(form.nights) < 0) e.nights = 'Required, 0 or more';
-    if (form.rawPrice === '' || Number(form.rawPrice) < 0) e.rawPrice = 'Required, 0 or more';
+    if (form.adultRawPrice === '' || Number(form.adultRawPrice) < 0) e.adultRawPrice = 'Required, 0 or more';
+    if (form.childRawPrice !== '' && Number(form.childRawPrice) < 0) e.childRawPrice = '0 or more';
     if (!form.inclusions.trim()) e.inclusions = 'Required';
     if (!form.exclusions.trim()) e.exclusions = 'Required';
 
@@ -313,7 +323,8 @@ function PackageFormPage() {
       title: form.title.trim(),
       days: Number(form.days),
       nights: Number(form.nights),
-      rawPrice: Number(form.rawPrice),
+      adultRawPrice: Number(form.adultRawPrice),
+      childRawPrice: form.childRawPrice === '' ? 0 : Number(form.childRawPrice),
       inclusions: form.inclusions.trim(),
       exclusions: form.exclusions.trim(),
       gallery: galleryClean,
@@ -479,14 +490,24 @@ function PackageFormPage() {
               error={errors.nights}
             />
             <Input
-              label="TravNexa Cost (raw price)"
+              label="TravNexa Cost — Adult (per head)"
               type="number"
               min="0"
               step="0.01"
               required
-              value={form.rawPrice}
-              onChange={(e) => setForm((prev) => ({ ...prev, rawPrice: e.target.value }))}
-              error={errors.rawPrice}
+              value={form.adultRawPrice}
+              onChange={(e) => setForm((prev) => ({ ...prev, adultRawPrice: e.target.value }))}
+              error={errors.adultRawPrice}
+            />
+            <Input
+              label="TravNexa Cost — Child (per head)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.childRawPrice}
+              onChange={(e) => setForm((prev) => ({ ...prev, childRawPrice: e.target.value }))}
+              error={errors.childRawPrice}
+              hint={!errors.childRawPrice ? 'Blank or 0 means children travel free.' : undefined}
             />
           </div>
 

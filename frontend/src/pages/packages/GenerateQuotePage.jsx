@@ -69,8 +69,11 @@ function GenerateQuotePage() {
           </p>
         </div>
         <div className="text-right">
-          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">TravNexa Cost</p>
-          <p className="text-lg font-semibold text-neutral-900">{formatCurrency(pkg.rawPrice)}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">TravNexa Cost / adult</p>
+          <p className="text-lg font-semibold text-neutral-900">{formatCurrency(pkg.adultRawPrice)}</p>
+          {Number(pkg.childRawPrice) > 0 && (
+            <p className="text-[12px] text-neutral-500">{formatCurrency(pkg.childRawPrice)} / child</p>
+          )}
         </div>
       </Card>
 

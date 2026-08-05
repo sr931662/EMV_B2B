@@ -146,15 +146,22 @@ function renderHeader(doc, pkg) {
   }
 }
 
-/** Price panel. RAW EMV price only — locked rule 4(a): the EMV quote never carries markup. */
+/**
+ * Price panel. RAW EMV price only — locked rule 4(a): the EMV quote never carries markup.
+ *
+ * Per-head, same as the package is actually priced: an adult rate always shown, a child rate
+ * shown alongside it whenever it differs — including "Free" for the common childRawPrice = 0
+ * case, since that is a real, worth-stating fact about the package rather than a value to hide.
+ */
 function renderPricePanel(doc, pkg) {
   doc.moveDown(1);
-  ensureSpace(doc, 78);
+  ensureSpace(doc, 90);
 
   const x = doc.page.margins.left;
   const w = contentWidth(doc);
   const top = doc.y;
-  const h = 62;
+  const h = 74;
+  const childRate = Number(pkg.childRawPrice ?? 0);
 
   doc.save().roundedRect(x, top, w, h, 4).fillColor(PANEL).fill().restore();
   doc
@@ -170,17 +177,22 @@ function renderPricePanel(doc, pkg) {
     .font('Helvetica')
     .fontSize(9)
     .fillColor(MUTED)
-    .text('PACKAGE PRICE', x + 16, top + 12, { characterSpacing: 0.8 });
+    .text('PACKAGE PRICE (PER HEAD)', x + 16, top + 12, { characterSpacing: 0.8 });
   doc
     .font('Helvetica-Bold')
-    .fontSize(19)
+    .fontSize(17)
     .fillColor(INK)
-    .text(formatInr(pkg.rawPrice), x + 16, top + 25);
+    .text(`Adult: ${formatInr(pkg.adultRawPrice)}`, x + 16, top + 25);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .fillColor(INK)
+    .text(`Child: ${childRate === 0 ? 'Free' : formatInr(childRate)}`, x + 16, top + 48);
   doc
     .font('Helvetica')
     .fontSize(8)
     .fillColor(MUTED)
-    .text('Wholesale rate, per package. Taxes as applicable.', x + 16, top + 48);
+    .text('Wholesale rate. Taxes as applicable.', x + 16, top + 63);
 
   doc.y = top + h;
   doc.x = x;

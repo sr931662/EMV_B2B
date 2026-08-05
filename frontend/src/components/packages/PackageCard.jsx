@@ -64,11 +64,16 @@ function PackageCard({ pkg }) {
         <div className="mt-auto flex items-end justify-between gap-2 border-t border-neutral-150 pt-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
-              TravNexa cost
+              TravNexa cost / adult
             </p>
             <p className="text-[17px] font-semibold leading-tight text-neutral-900 tabular-nums">
-              {formatCurrency(pkg.rawPrice)}
+              {formatCurrency(pkg.adultRawPrice)}
             </p>
+            {Number(pkg.childRawPrice) > 0 && (
+              <p className="text-[11px] text-neutral-500 tabular-nums">
+                {formatCurrency(pkg.childRawPrice)} / child
+              </p>
+            )}
           </div>
           <span className="mb-0.5 flex size-7 items-center justify-center rounded-lg bg-neutral-100 text-neutral-400 transition-colors group-hover:bg-primary-600 group-hover:text-white">
             <Icon name="arrow-right" size={14} />

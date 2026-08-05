@@ -282,6 +282,7 @@ async function buildDocument(tx, { quoteId, packageId, travelDate }) {
       // Duplicated from the quote's own columns on purpose: the document must be readable on its
       // own, without joining back to a row that could later be corrected.
       rawPriceAtQuote: null,
+      childRawPriceAtQuote: null,
       sellingPrice: null,
       tcsRate: null,
       tcsAmount: null,
@@ -300,6 +301,7 @@ async function capture(tx, { quoteId, packageId, travelDate, pricing }) {
 
   document.pricing = {
     rawPriceAtQuote: money(pricing.rawPriceAtQuote),
+    childRawPriceAtQuote: money(pricing.childRawPriceAtQuote),
     sellingPrice: money(pricing.sellingPrice),
     markupAmount: money(pricing.markupAmount),
     tcsRate: money(pricing.tcsRate),

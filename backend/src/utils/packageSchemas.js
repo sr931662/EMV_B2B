@@ -18,11 +18,21 @@ const requiredText = (label, max = 255) =>
 // carry EMV branding (locked rule 4b).
 const packageTitleField = withBrandGuard(requiredText('title'), 'Package title');
 
-const priceField = z.coerce
-  .number({ error: 'rawPrice is required and must be a number' })
-  .min(0, 'rawPrice cannot be negative')
-  .max(MAX_PRICE, `rawPrice must be at most ${MAX_PRICE}`)
-  .refine((v) => Math.round(v * 100) / 100 === v, 'rawPrice may have at most 2 decimal places');
+// Shared by both per-head price fields — `label` only changes the error text ("adultRawPrice" vs
+// "childRawPrice"), the constraints are identical.
+const priceField = (label) =>
+  z.coerce
+    .number({ error: `${label} must be a number` })
+    .min(0, `${label} cannot be negative`)
+    .max(MAX_PRICE, `${label} must be at most ${MAX_PRICE}`)
+    .refine((v) => Math.round(v * 100) / 100 === v, `${label} may have at most 2 decimal places`);
+
+const requiredPriceField = (label) =>
+  z.coerce
+    .number({ error: `${label} is required and must be a number` })
+    .min(0, `${label} cannot be negative`)
+    .max(MAX_PRICE, `${label} must be at most ${MAX_PRICE}`)
+    .refine((v) => Math.round(v * 100) / 100 === v, `${label} may have at most 2 decimal places`);
 
 const stringArray = (label, maxLen = 1000, maxItems = 50) =>
   z
@@ -76,7 +86,11 @@ const createPackageSchema = z
       .int('nights must be a whole number')
       .min(0, 'nights cannot be negative')
       .max(60),
-    rawPrice: priceField,
+    adultRawPrice: requiredPriceField('adultRawPrice'),
+    // Optional, defaulting to 0 — "children travel free" is the common case, and a package that
+    // does charge for children opts in by setting this rather than every package having to state
+    // an explicit 0.
+    childRawPrice: priceField('childRawPrice').optional().default(0),
     inclusions: requiredText('inclusions', 20000),
     exclusions: requiredText('exclusions', 20000),
     gallery: stringArray('gallery').optional().default([]),
@@ -94,7 +108,8 @@ const updatePackageSchema = z
     title: packageTitleField.optional(),
     days: z.coerce.number().int('days must be a whole number').min(1).max(60).optional(),
     nights: z.coerce.number().int('nights must be a whole number').min(0).max(60).optional(),
-    rawPrice: priceField.optional(),
+    adultRawPrice: priceField('adultRawPrice').optional(),
+    childRawPrice: priceField('childRawPrice').optional(),
     inclusions: requiredText('inclusions', 20000).optional(),
     exclusions: requiredText('exclusions', 20000).optional(),
     gallery: stringArray('gallery').optional(),
