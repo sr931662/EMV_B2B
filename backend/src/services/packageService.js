@@ -21,8 +21,26 @@ const DESTINATION_SUMMARY = {
 // previous PackageDay/PackageHotel rows rather than deleting them (locked rule 1), so the
 // superseded copies are still on disk and must never leak into the current itinerary.
 const FULL_PACKAGE_INCLUDE = {
-  destination: DESTINATION_SUMMARY,
-  packageDays: { where: { archived: false }, orderBy: { dayNumber: 'asc' } },
+  // Extends DESTINATION_SUMMARY with the notes fields the PDF prints (locked rule 4a: the PDF is
+  // sourced from the same payload the itinerary page renders) — kept off the marketplace list
+  // above so that summary projection stays lean.
+  destination: { select: { ...DESTINATION_SUMMARY.select, generalNotes: true, toursAndTransfersNotes: true } },
+  packageDays: {
+    where: { archived: false },
+    orderBy: { dayNumber: 'asc' },
+    include: {
+      events: {
+        where: { archived: false, parentEventId: null },
+        orderBy: [{ startMinute: { sort: 'asc', nulls: 'last' } }, { sortOrder: 'asc' }],
+        include: {
+          subEvents: {
+            where: { archived: false },
+            orderBy: [{ startMinute: { sort: 'asc', nulls: 'last' } }, { sortOrder: 'asc' }],
+          },
+        },
+      },
+    },
+  },
   // Ordered by the admin's selection order, not alphabetically — see PackageHotel.sortOrder.
   packageHotels: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
   // A reference, not a copy: the policy that applies is whatever it says TODAY, right up until a
@@ -161,6 +179,7 @@ async function buildHotelCopies(tx, destinationId, hotelIds) {
       // Everything below used to be dropped on the floor, leaving an admin to retype the address,
       // star rating, map link and check-in times for every package this hotel appeared in.
       hotelAddress: hotel.address,
+      hotelPhone: hotel.phone,
       coverImageUrl: hotel.coverImageUrl ?? hotel.images?.[0] ?? null,
       starRating: hotel.starRating,
       mapLink: hotel.mapLink,

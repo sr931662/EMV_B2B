@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Badge, Button, Card, Icon, Skeleton } from '../../components/ui';
 import MarkdownContent from '../../components/shared/MarkdownContent';
 import { apiGet, ApiError } from '../../api/client';
-import { formatDate } from '../../lib/format';
+import { formatCurrency, formatDate } from '../../lib/format';
 import {
   EVENT_TYPE_LABELS,
   EVENT_TYPE_ICONS,
@@ -128,6 +128,12 @@ function HotelCard({ hotel }) {
         )}
 
         {hotel.hotelAddress && <p className="text-[13px] text-neutral-600">{hotel.hotelAddress}</p>}
+        {hotel.hotelPhone && (
+          <p className="flex items-center gap-1 text-[13px] text-neutral-600">
+            <Icon name="phone" size={13} className="text-neutral-400" />
+            {hotel.hotelPhone}
+          </p>
+        )}
 
         {hotel.mapLink && (
           <a
@@ -266,6 +272,16 @@ function PackageItineraryPage() {
             />
           </label>
         </div>
+
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-neutral-100 px-5 py-4 sm:px-6">
+          <p className="text-[12px] uppercase tracking-wide text-neutral-500">Wholesale price (per head)</p>
+          <p className="text-[18px] font-semibold text-neutral-900">
+            Adult: {formatCurrency(pkg.adultRawPrice)}
+          </p>
+          <p className="text-[14px] text-neutral-700">
+            Child: {Number(pkg.childRawPrice) === 0 ? 'Free' : formatCurrency(pkg.childRawPrice)}
+          </p>
+        </div>
       </div>
 
       {hotels.length > 0 && (
@@ -399,6 +415,19 @@ function PackageItineraryPage() {
               <MarkdownContent content={destinationNotes.toursAndTransfers} />
             </Card>
           )}
+        </section>
+      )}
+
+      {destinationNotes.terms?.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold text-neutral-900">Important notes and terms</h2>
+          <div className="flex flex-col gap-4">
+            {destinationNotes.terms.map((block) => (
+              <Card key={block.key} title={block.title}>
+                <MarkdownContent content={block.body} />
+              </Card>
+            ))}
+          </div>
         </section>
       )}
 

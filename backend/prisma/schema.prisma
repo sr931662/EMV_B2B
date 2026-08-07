@@ -544,6 +544,7 @@ model Hotel {
   images        String[]
 
   address       String? @db.Text
+  phone         String?
   coverImageUrl String?
 
   // Our own rating out of 5, distinct from the Google numbers below, which are someone else's
@@ -779,6 +780,7 @@ model PackageHotel {
   hotelCategory    String
   hotelDescription String  @db.Text
   hotelAddress     String? @db.Text
+  hotelPhone       String?
 
   // Remote URL, not an upload — same reasoning as VisaCountry.coverImageUrl: uploads live on the
   // container's ephemeral disk and vanish on every deploy, which is fatal for marketing imagery.

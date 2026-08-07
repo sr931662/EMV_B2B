@@ -49,6 +49,16 @@ function DestinationsTab({ onChanged }) {
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  // Adding a country's cities one modal at a time is what made this a request in the first place —
+  // a new destination usually means "we just signed the contract for this country," which is
+  // several cities at once, not one.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCountryId, setBulkCountryId] = useState('');
+  const [bulkText, setBulkText] = useState('');
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkError, setBulkError] = useState(null);
+  const [bulkResults, setBulkResults] = useState(null);
+
   const load = () => {
     setLoading(true);
     setError(null);
@@ -143,6 +153,71 @@ function DestinationsTab({ onChanged }) {
     }
   };
 
+  const openBulk = () => {
+    setBulkCountryId(countryFilter);
+    setBulkText('');
+    setBulkError(null);
+    setBulkResults(null);
+    setBulkOpen(true);
+  };
+
+  /**
+   * Creates every non-blank line as its own destination under the chosen country.
+   *
+   * Sequential, not Promise.all: a country can have dozens of cities pasted in at once, and firing
+   * them all in parallel would be a burst of writes against the same country row with no way to
+   * tell a partial failure apart from a full one. One request at a time is slower but the per-line
+   * result below is honest about what actually saved.
+   */
+  const handleBulkSave = async () => {
+    const names = bulkText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (!bulkCountryId) {
+      setBulkError('Pick the country these destinations belong to.');
+      return;
+    }
+    if (names.length === 0) {
+      setBulkError('Enter at least one destination name, one per line.');
+      return;
+    }
+
+    setBulkSaving(true);
+    setBulkError(null);
+    setBulkResults(null);
+
+    const results = [];
+    for (const name of names) {
+      try {
+        await apiPost('/api/destinations', {
+          name,
+          countryId: bulkCountryId,
+          aboutDestination: '',
+          packages: '',
+          faqs: '',
+        });
+        results.push({ name, ok: true });
+      } catch (err) {
+        results.push({ name, ok: false, message: err instanceof ApiError ? err.message : 'Failed to create.' });
+      }
+    }
+
+    setBulkResults(results);
+    setBulkSaving(false);
+
+    const created = results.filter((r) => r.ok).length;
+    if (created > 0) {
+      showToast({
+        variant: created === results.length ? 'success' : 'warning',
+        message: `${created} of ${results.length} destination${results.length === 1 ? '' : 's'} created.`,
+      });
+      await load();
+      onChanged?.();
+    }
+  };
+
   const handleArchive = async (d) => {
     try {
       await apiDelete(`/api/destinations/${d.id}`);
@@ -196,6 +271,10 @@ function DestinationsTab({ onChanged }) {
             extraParams={countryFilter ? { countryId: countryFilter } : undefined}
             onImported={load}
           />
+          <Button size="sm" variant="outline" onClick={openBulk}>
+            <Icon name="plus" size={14} />
+            Bulk add destinations
+          </Button>
           <Button size="sm" onClick={openCreate}>
             <Icon name="plus" size={14} />
             New destination
@@ -375,6 +454,56 @@ function DestinationsTab({ onChanged }) {
             onChange={(e) => setForm((prev) => ({ ...prev, faqs: e.target.value }))}
             hint="Keep FAQ content in markdown so it renders cleanly on the itinerary page."
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        title="Bulk add destinations"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setBulkOpen(false)}>
+              Close
+            </Button>
+            <Button loading={bulkSaving} onClick={handleBulkSave}>
+              Create all
+            </Button>
+          </>
+        }
+      >
+        {bulkError && (
+          <Alert variant="danger" className="mb-3">
+            {bulkError}
+          </Alert>
+        )}
+        <div className="mt-4 flex flex-col gap-4">
+          <LibraryPicker
+            entity="country"
+            label="Country"
+            value={bulkCountryId}
+            onChange={setBulkCountryId}
+            placeholder="Search countries…"
+            allowCreate={false}
+          />
+          <Textarea
+            label="Destination names"
+            rows={8}
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            hint="One destination per line, e.g. one city per row. Each is created with this country and no other details — edit a row afterwards to add city, state, about text and FAQs."
+          />
+          {bulkResults && (
+            <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto rounded-lg border border-neutral-200 p-2 text-[13px]">
+              {bulkResults.map((r, i) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <li key={i} className={r.ok ? 'text-success-700' : 'text-danger-700'}>
+                  {r.ok ? '✓' : '✕'} {r.name}
+                  {!r.ok && r.message ? ` — ${r.message}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </Modal>
     </div>

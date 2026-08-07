@@ -19,8 +19,27 @@ const NON_ARCHIVABLE_STATUSES = ['BOOKING_CONFIRMED', 'ORDER_COMPLETED'];
 
 const PACKAGE_FOR_QUOTE = {
   include: {
-    destination: { select: { id: true, name: true, archived: true } },
-    packageDays: { where: { archived: false }, orderBy: { dayNumber: 'asc' } },
+    // generalNotes/toursAndTransfersNotes feed the "Important notes" section of the partner quote
+    // PDF — see pdfService.renderNotes.
+    destination: {
+      select: { id: true, name: true, archived: true, generalNotes: true, toursAndTransfersNotes: true },
+    },
+    packageDays: {
+      where: { archived: false },
+      orderBy: { dayNumber: 'asc' },
+      include: {
+        events: {
+          where: { archived: false, parentEventId: null },
+          orderBy: [{ startMinute: { sort: 'asc', nulls: 'last' } }, { sortOrder: 'asc' }],
+          include: {
+            subEvents: {
+              where: { archived: false },
+              orderBy: [{ startMinute: { sort: 'asc', nulls: 'last' } }, { sortOrder: 'asc' }],
+            },
+          },
+        },
+      },
+    },
     packageHotels: { where: { archived: false }, orderBy: { sortOrder: 'asc' } },
   },
 };

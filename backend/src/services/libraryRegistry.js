@@ -217,6 +217,7 @@ const REGISTRY = {
       field('starRating', 'Star rating', 'number'),
       field('description', 'Description', 'textarea', { required: true }),
       field('address', 'Address', 'textarea'),
+      field('phone', 'Phone', 'text'),
       field('mapLink', 'Map link', 'text'),
       field('coverImageUrl', 'Cover image', 'image'),
       field('roomType', 'Room type', 'text'),

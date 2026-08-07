@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
+const noteBlockService = require('./noteBlockService');
 
 // Generated artefacts live outside src/ and outside git (see .gitignore).
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
@@ -9,12 +10,56 @@ const EMV_QUOTE_DIR_REL = path.join('storage', 'quotes', 'emv');
 const BRAND = 'TravNexa Global';
 const TAGLINE = 'Empowering Travel Businesses Worldwide';
 
-// Palette kept deliberately small: near-black body, one accent, one muted grey.
+// Palette kept deliberately small: near-black body, one accent, one muted grey, one warning tint
+// for the day-notes callout.
 const INK = '#1a1a1a';
 const MUTED = '#6b7280';
 const ACCENT = '#0f5c7a';
 const RULE = '#d1d5db';
 const PANEL = '#f3f4f6';
+const WARN_BORDER = '#d97706';
+const WARN_PANEL = '#fef3e2';
+const WARN_TEXT = '#92400e';
+
+// Mirrors frontend/src/lib/itinerary.js's vocabulary — duplicated rather than shared because the
+// two run in separate bundles (browser vs. Node), same reasoning as DAY_EVENT_TYPES/MEAL_TYPES
+// being restated in utils/packageSchemas.js.
+const EVENT_TYPE_LABELS = {
+  ARRIVAL: 'Arrival',
+  CHECK_IN: 'Check in',
+  TRANSFER: 'Transfer',
+  SIGHTSEEING: 'Sightseeing',
+  ACTIVITY: 'Activity',
+  MEAL: 'Meal',
+  LEISURE: 'Leisure',
+  CHECK_OUT: 'Check out',
+  OVERNIGHT: 'Overnight',
+  DEPARTURE: 'Departure',
+};
+
+const MEAL_LABELS = { BREAKFAST: 'Breakfast', LUNCH: 'Lunch', DINNER: 'Dinner' };
+
+/** "09:30" from 570 minutes past midnight. Null stays null rather than printing "00:00". */
+function formatMinute(minute) {
+  if (minute === null || minute === undefined) return null;
+  const hours = String(Math.floor(minute / 60)).padStart(2, '0');
+  const mins = String(minute % 60).padStart(2, '0');
+  return `${hours}:${mins}`;
+}
+
+function formatTimeRange(startMinute, durationMinutes) {
+  const start = formatMinute(startMinute);
+  if (!start) return null;
+  if (durationMinutes === null || durationMinutes === undefined) return start;
+
+  const end = formatMinute((startMinute + durationMinutes) % 1440);
+  return `${start}–${end}`;
+}
+
+function mealsLine(meals) {
+  if (!meals?.length) return null;
+  return meals.map((m) => MEAL_LABELS[m] ?? m).join(' · ');
+}
 
 /** Absolute path for a stored relative path (we persist relative paths, never absolute). */
 function resolveStoragePath(relativePath) {
@@ -198,6 +243,88 @@ function renderPricePanel(doc, pkg) {
   doc.x = x;
 }
 
+/** One scheduled item inside a day, indented one level further for a sub-event. */
+function renderEvent(doc, event, nested = false) {
+  ensureSpace(doc, nested ? 26 : 30);
+
+  const indent = doc.page.margins.left + (nested ? 22 : 0);
+  const width = contentWidth(doc) - (nested ? 22 : 0);
+  const timeRange = formatTimeRange(event.startMinute, event.durationMinutes);
+
+  const startY = doc.y;
+  let cursorX = indent;
+
+  if (timeRange) {
+    doc.font('Helvetica').fontSize(8.5).fillColor(MUTED).text(timeRange, cursorX, startY, {
+      width: 62,
+      continued: false,
+    });
+    cursorX += 66;
+  }
+
+  doc
+    .font(nested ? 'Helvetica' : 'Helvetica-Bold')
+    .fontSize(nested ? 9 : 9.5)
+    .fillColor(INK)
+    .text(event.title, cursorX, startY, { width: width - (cursorX - indent), continued: true });
+  doc
+    .font('Helvetica')
+    .fontSize(8)
+    .fillColor(MUTED)
+    .text(`  ${EVENT_TYPE_LABELS[event.type] ?? event.type}`, { continued: false });
+
+  const meals = mealsLine(event.mealsIncluded);
+  if (event.description) {
+    doc.moveDown(0.1);
+    doc
+      .font('Helvetica')
+      .fontSize(8.75)
+      .fillColor(MUTED)
+      .text(event.description, indent, doc.y, { width, lineGap: 1.5 });
+  }
+  if (meals) {
+    doc.font('Helvetica-Oblique').fontSize(8.25).fillColor(ACCENT).text(`Meals: ${meals}`, indent, doc.y, {
+      width,
+    });
+  }
+
+  doc.moveDown(0.35);
+
+  (event.subEvents ?? []).forEach((sub) => renderEvent(doc, sub, true));
+}
+
+/** The day-notes callout — a tinted, left-bordered box, same treatment the site gives it. */
+function renderDayNotesBox(doc, notes) {
+  const lines = String(notes).trim();
+  if (!lines) return;
+
+  ensureSpace(doc, 40);
+  doc.moveDown(0.3);
+
+  const x = doc.page.margins.left;
+  const w = contentWidth(doc);
+  const top = doc.y;
+
+  doc.font('Helvetica').fontSize(8.75).fillColor(WARN_TEXT);
+  const textHeight = doc.heightOfString(lines, { width: w - 24, lineGap: 1.5 });
+  const boxHeight = textHeight + 16;
+
+  doc.save().roundedRect(x, top, w, boxHeight, 3).fillColor(WARN_PANEL).fill().restore();
+  doc
+    .save()
+    .moveTo(x, top)
+    .lineTo(x, top + boxHeight)
+    .lineWidth(2.5)
+    .strokeColor(WARN_BORDER)
+    .stroke()
+    .restore();
+
+  doc.fillColor(WARN_TEXT).text(lines, x + 14, top + 8, { width: w - 24, lineGap: 1.5 });
+  doc.y = top + boxHeight;
+  doc.x = x;
+  doc.moveDown(0.3);
+}
+
 function renderItinerary(doc, pkg) {
   sectionHeading(doc, 'Day-by-day itinerary');
 
@@ -209,23 +336,66 @@ function renderItinerary(doc, pkg) {
   }
 
   days.forEach((day, i) => {
-    ensureSpace(doc, 70);
-    if (i > 0) doc.moveDown(0.6);
+    ensureSpace(doc, 90);
+    if (i > 0) doc.moveDown(0.9);
 
+    const dayMeals = mealsLine(day.mealsIncluded);
+
+    const headingY = doc.y;
     doc
       .font('Helvetica-Bold')
-      .fontSize(10.5)
+      .fontSize(11)
       .fillColor(ACCENT)
-      .text(`Day ${day.dayNumber}`, { continued: true })
+      .text(`DAY ${day.dayNumber}`, doc.page.margins.left, headingY, { continued: true, characterSpacing: 0.4 })
       .fillColor(INK)
-      .text(`   ${day.title}`);
+      .text(`   ${day.title}`, { continued: false });
 
-    doc.moveDown(0.2);
+    if (dayMeals) {
+      doc
+        .font('Helvetica')
+        .fontSize(8.5)
+        .fillColor(MUTED)
+        .text(dayMeals, doc.page.margins.left, headingY, { width: contentWidth(doc), align: 'right' });
+    }
+
+    doc.moveDown(0.3);
+
+    if (day.brief) {
+      doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(MUTED).text(day.brief, {
+        width: contentWidth(doc),
+        lineGap: 2,
+      });
+      doc.moveDown(0.15);
+    }
+
     doc
       .font('Helvetica')
-      .fontSize(10)
+      .fontSize(9.5)
       .fillColor(INK)
       .text(day.description, { width: contentWidth(doc), lineGap: 2.5, align: 'left' });
+
+    if (day.events?.length) {
+      doc.moveDown(0.4);
+      day.events.forEach((event) => renderEvent(doc, event));
+    }
+
+    if (day.inclusions) {
+      ensureSpace(doc, 20);
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(8.25)
+        .fillColor(MUTED)
+        .text('INCLUDED TODAY  ', { continued: true, characterSpacing: 0.4 })
+        .font('Helvetica')
+        .fillColor(INK)
+        .text(day.inclusions, { lineGap: 1.5 });
+      doc.moveDown(0.15);
+    }
+
+    if (day.notes) renderDayNotesBox(doc, day.notes);
+
+    doc.moveDown(0.2);
+    horizontalRule(doc);
   });
 }
 
@@ -244,25 +414,96 @@ function renderHotels(doc, pkg) {
   }
 
   hotels.forEach((hotel, i) => {
-    ensureSpace(doc, 62);
-    if (i > 0) doc.moveDown(0.55);
+    ensureSpace(doc, 90);
+    if (i > 0) doc.moveDown(0.6);
 
+    const nameY = doc.y;
     doc
       .font('Helvetica-Bold')
-      .fontSize(10.5)
+      .fontSize(11)
       .fillColor(INK)
-      .text(hotel.hotelName, { continued: true })
+      .text(hotel.hotelName, doc.page.margins.left, nameY, { continued: true })
       .font('Helvetica')
       .fontSize(9.5)
       .fillColor(MUTED)
-      .text(`   ${hotel.hotelCategory}`);
+      .text(`   ${hotel.hotelCategory}`, { continued: false });
 
-    doc.moveDown(0.2);
+    if (hotel.starRating) {
+      const stars = '★'.repeat(Math.min(hotel.starRating, 7));
+      doc
+        .font('Helvetica')
+        .fontSize(9.5)
+        .fillColor('#b45309')
+        .text(stars, doc.page.margins.left, nameY, { width: contentWidth(doc), align: 'right' });
+    }
+
+    doc.moveDown(0.25);
+
+    // Facts line: room type, meal plan, nights — the specifics a traveller checks before anything
+    // else, kept together rather than buried inside the prose description.
+    const facts = [
+      hotel.roomType,
+      hotel.mealPlan,
+      `${hotel.nights} night${hotel.nights === 1 ? '' : 's'}`,
+      hotel.refundable === true ? 'Refundable' : hotel.refundable === false ? 'Non-refundable' : null,
+    ]
+      .filter(Boolean)
+      .join('   ·   ');
+    if (facts) {
+      doc.font('Helvetica-Bold').fontSize(8.75).fillColor(ACCENT).text(facts, { width: contentWidth(doc) });
+      doc.moveDown(0.2);
+    }
+
+    if (hotel.hotelAddress || hotel.hotelPhone) {
+      const contact = [hotel.hotelAddress, hotel.hotelPhone].filter(Boolean).join('   ·   ');
+      doc.font('Helvetica').fontSize(8.5).fillColor(MUTED).text(contact, { width: contentWidth(doc), lineGap: 1.5 });
+      doc.moveDown(0.2);
+    }
+
     doc
       .font('Helvetica')
-      .fontSize(10)
+      .fontSize(9.5)
       .fillColor(INK)
       .text(hotel.hotelDescription, { width: contentWidth(doc), lineGap: 2.5 });
+
+    doc.moveDown(0.3);
+    horizontalRule(doc);
+  });
+}
+
+/** Important notes and terms — the same standard blocks printed on the voucher, see NoteBlock. */
+async function renderNotes(doc, pkg) {
+  const generalNotes = pkg.destination?.generalNotes;
+  const toursAndTransfers = pkg.destination?.toursAndTransfersNotes;
+  const terms = await noteBlockService.forVoucher();
+
+  if (!generalNotes && !toursAndTransfers && terms.length === 0) return;
+
+  sectionHeading(doc, 'Important notes and terms');
+
+  if (generalNotes) {
+    doc.font('Helvetica').fontSize(9.5).fillColor(INK).text(generalNotes, { width: contentWidth(doc), lineGap: 2 });
+    doc.moveDown(0.4);
+  }
+  if (toursAndTransfers) {
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(9)
+      .fillColor(INK)
+      .text('Tours and transfers', { width: contentWidth(doc) });
+    doc.font('Helvetica').fontSize(9.5).fillColor(INK).text(toursAndTransfers, {
+      width: contentWidth(doc),
+      lineGap: 2,
+    });
+    doc.moveDown(0.4);
+  }
+
+  terms.forEach((block) => {
+    ensureSpace(doc, 40);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(INK).text(block.title, { width: contentWidth(doc) });
+    doc.moveDown(0.15);
+    renderTextBlock(doc, block.body);
+    doc.moveDown(0.4);
   });
 }
 
@@ -364,6 +605,7 @@ async function generateEmvQuotePdf(pkg, { compress = true, fileName } = {}) {
 
   renderItinerary(doc, pkg);
   renderHotels(doc, pkg);
+  await renderNotes(doc, pkg);
   renderFooters(doc, `${BRAND}  ·  Trade document — not for onward distribution to end customers.`);
 
   doc.end();
@@ -609,6 +851,8 @@ async function generateQuotePdf(quote, pkg, partnerProfile, { compress = true, f
     sectionHeading(doc, 'Special requests');
     renderTextBlock(doc, quote.specialRequests);
   }
+
+  await renderNotes(doc, pkg);
 
   const footer = own
     ? [partnerProfile.companyName, partnerProfile.mobile, partnerProfile.businessEmail]

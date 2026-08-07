@@ -48,6 +48,8 @@ const EMPTY_FORM = {
   description: '',
   roomType: '',
   mealPlan: '',
+  address: '',
+  phone: '',
   images: [],
 };
 
@@ -123,6 +125,8 @@ function HotelsTab() {
       description: h.description,
       roomType: h.roomType ?? '',
       mealPlan: h.mealPlan ?? '',
+      address: h.address ?? '',
+      phone: h.phone ?? '',
       images: h.images ?? [],
     });
     setErrors({});
@@ -146,6 +150,8 @@ function HotelsTab() {
       starRating: form.starRating === '' ? null : Number(form.starRating),
       roomType: form.roomType.trim() || null,
       mealPlan: form.mealPlan.trim() || null,
+      address: form.address.trim() || null,
+      phone: form.phone.trim() || null,
       images,
     };
 
@@ -273,7 +279,7 @@ function HotelsTab() {
                   <Table.HeadCell>Name</Table.HeadCell>
                   <Table.HeadCell>Category</Table.HeadCell>
                   <Table.HeadCell align="right">Star rating</Table.HeadCell>
-                  <Table.HeadCell>Room / meal plan</Table.HeadCell>
+                  <Table.HeadCell>Default room / meal plan</Table.HeadCell>
                   <Table.HeadCell>Status</Table.HeadCell>
                   <Table.HeadCell align="right">
                     <span className="sr-only">Actions</span>
@@ -312,7 +318,7 @@ function HotelsTab() {
                       <Table.Cell align="right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => setRatesFor(h)}>
-                            Rates
+                            Rates &amp; pricing
                           </Button>
                           <Button variant="outline" size="sm" onClick={() => setSuppliersFor(h)}>
                             Suppliers
@@ -406,12 +412,27 @@ function HotelsTab() {
               label="Default room type"
               value={form.roomType}
               onChange={(e) => setForm((prev) => ({ ...prev, roomType: e.target.value }))}
-              hint="What a package starts from when it copies this hotel in."
+              hint='What a package starts from when it copies this hotel in. For other room categories, meal plans and their prices, use the "Rates" button on this hotel.'
             />
             <Input
               label="Default meal plan"
               value={form.mealPlan}
               onChange={(e) => setForm((prev) => ({ ...prev, mealPlan: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Textarea
+              label="Address"
+              rows={2}
+              value={form.address}
+              onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+              hint="Printed on the itinerary and voucher."
+            />
+            <Input
+              label="Phone"
+              value={form.phone}
+              onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
+              hint="The property's own reception number."
             />
           </div>
           <RepeatableUrlList
@@ -423,8 +444,21 @@ function HotelsTab() {
         </div>
       </Modal>
 
-      <Modal open={Boolean(ratesFor)} onClose={() => setRatesFor(null)} title={`Rate card — ${ratesFor?.name ?? ''}`} size="lg">
-        {ratesFor && <RateCardEditor hotelId={ratesFor.id} onClose={() => setRatesFor(null)} />}
+      <Modal
+        open={Boolean(ratesFor)}
+        onClose={() => setRatesFor(null)}
+        title={`Rates & pricing — ${ratesFor?.name ?? ''}`}
+        size="lg"
+      >
+        {ratesFor && (
+          <>
+            <p className="mb-4 text-[13px] text-neutral-500">
+              Every room category and meal plan this hotel sells, each with its own price by date
+              range and occupancy. Add a row per room type + meal plan combination.
+            </p>
+            <RateCardEditor hotelId={ratesFor.id} onClose={() => setRatesFor(null)} />
+          </>
+        )}
       </Modal>
 
       <Modal

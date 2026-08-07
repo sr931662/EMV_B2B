@@ -94,4 +94,15 @@ async function replaceAll(packageDayId, events) {
   });
 }
 
-module.exports = { list, replaceAll };
+/**
+ * Edits a day's own content — title, brief, description, notes, inclusions, meals — as opposed to
+ * its events. A plain in-place update: there is exactly one PackageDay row per day number, so
+ * unlike events there is nothing to archive-and-replace.
+ */
+async function update(packageDayId, data) {
+  await assertDay(packageDayId);
+
+  return prisma.packageDay.update({ where: { id: packageDayId }, data });
+}
+
+module.exports = { list, replaceAll, update };

@@ -70,6 +70,7 @@ function buildStays(hotels, travelDate) {
       hotelCategory: hotel.hotelCategory,
       hotelDescription: hotel.hotelDescription,
       hotelAddress: hotel.hotelAddress,
+      hotelPhone: hotel.hotelPhone,
       nights: hotel.nights,
       checkIn: withDayName(checkIn),
       checkOut: withDayName(checkOut),

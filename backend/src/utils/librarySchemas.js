@@ -219,6 +219,8 @@ const createHotelSchema = z
     starRating: starRatingField.nullable().optional(),
     roomType: optionalText('roomType', 100).nullable().optional(),
     mealPlan: optionalText('mealPlan', 100).nullable().optional(),
+    address: optionalText('address', 2000).nullable().optional(),
+    phone: optionalText('phone', 40).nullable().optional(),
   })
   .strict();
 
@@ -231,10 +233,13 @@ const updateHotelSchema = z
     starRating: starRatingField.nullable().optional(),
     roomType: optionalText('roomType', 100).nullable().optional(),
     mealPlan: optionalText('mealPlan', 100).nullable().optional(),
+    address: optionalText('address', 2000).nullable().optional(),
+    phone: optionalText('phone', 40).nullable().optional(),
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, {
-    error: 'Provide at least one field to update (name, category, description, images, starRating, roomType, mealPlan)',
+    error:
+      'Provide at least one field to update (name, category, description, images, starRating, roomType, mealPlan, address, phone)',
   });
 
 const listHotelsSchema = z

@@ -210,6 +210,28 @@ const replaceDayEventsSchema = z
 
 const dayIdParamSchema = z.object({ dayId: uuidField('dayId') });
 
+/**
+ * Editing a day's OWN content — title, brief, description, notes, inclusions, meals — as opposed
+ * to its events (replaceDayEventsSchema above). Unlike events this is a plain in-place update:
+ * there is exactly one PackageDay row per day number, so there is nothing to archive-and-replace.
+ */
+const updatePackageDaySchema = z
+  .object({
+    title: requiredText('title', 200).optional(),
+    brief: z.string().trim().max(500).nullable().optional(),
+    description: requiredText('description', 20000).optional(),
+    // Operational caveats — "carry swimwear", "monument shut on Fridays" — styled as a warning on
+    // the itinerary, separate from the long-form description.
+    notes: z.string().trim().max(5000).nullable().optional(),
+    inclusions: z.string().trim().max(5000).nullable().optional(),
+    mealsIncluded: z.array(z.enum(MEAL_TYPES)).max(3).optional(),
+    coverImageUrl: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    error: 'Provide at least one field to update (title, brief, description, notes, inclusions, mealsIncluded, coverImageUrl)',
+  });
+
 // travelDate resolves the template onto a calendar; without it the itinerary is still complete,
 // it just shows day numbers instead of dates.
 const itineraryQuerySchema = z
@@ -218,6 +240,7 @@ const itineraryQuerySchema = z
 
 module.exports = {
   replaceDayEventsSchema,
+  updatePackageDaySchema,
   dayIdParamSchema,
   itineraryQuerySchema,
   idParamSchema,

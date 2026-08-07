@@ -1,5 +1,6 @@
 const prisma = require('../utils/prisma');
 const ApiError = require('../utils/ApiError');
+const noteBlockService = require('./noteBlockService');
 
 /**
  * Assembles the itinerary view: the day-by-day plan for a package, with hotels, scheduled events,
@@ -102,6 +103,7 @@ function presentHotel(hotel) {
     hotelCategory: hotel.hotelCategory,
     hotelDescription: hotel.hotelDescription,
     hotelAddress: hotel.hotelAddress,
+    hotelPhone: hotel.hotelPhone,
     coverImageUrl: hotel.coverImageUrl,
     starRating: hotel.starRating,
     mapLink: hotel.mapLink,
@@ -238,6 +240,10 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
       nights: pkg.nights,
       countryName: pkg.destination.name,
       gallery: pkg.gallery,
+      // Wholesale, per head — already visible to partners on the package list/detail (they need
+      // it to set their own markup), so showing it alongside the itinerary is not a new exposure.
+      adultRawPrice: pkg.adultRawPrice,
+      childRawPrice: pkg.childRawPrice,
       inclusions: pkg.inclusions,
       exclusions: pkg.exclusions,
       faqs: pkg.faqs,
@@ -252,6 +258,9 @@ async function getPackageItinerary(packageId, { travelDate } = {}) {
     destinationNotes: {
       general: pkg.destination.generalNotes,
       toursAndTransfers: pkg.destination.toursAndTransfersNotes,
+      // The standard company-wide terms printed on the voucher (see noteBlockService.forVoucher) —
+      // shown on the itinerary too now, rather than only after a booking exists.
+      terms: await noteBlockService.forVoucher(),
     },
   };
 }

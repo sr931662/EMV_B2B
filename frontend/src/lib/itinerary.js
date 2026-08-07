@@ -81,13 +81,20 @@ export function formatTimeRange(startTime, endTime) {
   return endTime ? `${startTime} – ${endTime}` : startTime;
 }
 
-/** Star rating as filled/empty out of 5, or null when the admin has not rated the hotel. */
+/**
+ * Star rating as filled/empty icons, or null when the admin has not rated the hotel.
+ *
+ * Hotels can be rated up to 7 (see Hotel.starRating in schema.prisma — some properties genuinely
+ * market themselves as "7-star"). Padding the empty icons out to a fixed 5 used to make a 6- or
+ * 7-star hotel render identically to a 5-star one; the row now grows to fit whatever was entered.
+ */
 export function starsOutOfFive(rating) {
   if (rating === null || rating === undefined) return null;
 
-  const filled = Math.max(0, Math.min(5, Math.round(rating)));
+  const filled = Math.max(0, Math.min(7, Math.round(rating)));
+  const total = Math.max(5, filled);
 
-  return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+  return '★'.repeat(filled) + '☆'.repeat(total - filled);
 }
 
 /**

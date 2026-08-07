@@ -7,7 +7,18 @@ const destinationService = require('./destinationService');
 
 const DESTINATION_SUMMARY = { select: { id: true, name: true, archived: true } };
 
-async function create({ destinationId, name, category, description, images, starRating, roomType, mealPlan }) {
+async function create({
+  destinationId,
+  name,
+  category,
+  description,
+  images,
+  starRating,
+  roomType,
+  mealPlan,
+  address,
+  phone,
+}) {
   await destinationService.assertActiveDestination(destinationId); // 400 if missing/archived
 
   return prisma.hotel.create({
@@ -20,6 +31,8 @@ async function create({ destinationId, name, category, description, images, star
       starRating: starRating ?? null,
       roomType: roomType ?? null,
       mealPlan: mealPlan ?? null,
+      address: address ?? null,
+      phone: phone ?? null,
     },
     include: { destination: DESTINATION_SUMMARY },
   });

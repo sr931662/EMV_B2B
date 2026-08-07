@@ -15,6 +15,7 @@ const {
 const itineraryController = require('../controllers/itineraryController');
 const {
   replaceDayEventsSchema,
+  updatePackageDaySchema,
   dayIdParamSchema,
   itineraryQuerySchema,
 } = require('../utils/packageSchemas');
@@ -108,6 +109,16 @@ router.put(
   validate(dayIdParamSchema, 'params'),
   validate(replaceDayEventsSchema),
   itineraryController.replaceDayEvents
+);
+
+// The day's own card — title, brief, description, notes, inclusions, meals — as opposed to its
+// events above.
+router.patch(
+  '/days/:dayId',
+  roleMiddleware(...CAN_WRITE_PACKAGES),
+  validate(dayIdParamSchema, 'params'),
+  validate(updatePackageDaySchema),
+  itineraryController.updateDay
 );
 
 module.exports = router;

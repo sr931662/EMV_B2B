@@ -23,4 +23,10 @@ const replaceDayEvents = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Itinerary day saved', count: events.length, events });
 });
 
-module.exports = { getItinerary, listDayEvents, replaceDayEvents };
+const updateDay = asyncHandler(async (req, res) => {
+  const day = await dayEventService.update(req.params.dayId, req.body);
+
+  res.status(200).json({ message: 'Itinerary day updated', day });
+});
+
+module.exports = { getItinerary, listDayEvents, replaceDayEvents, updateDay };

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Card, Input, Select, Spinner } from '../../components/ui';
 import PassengerForm from '../../components/visa/PassengerForm';
 import VisaPriceCalcPanel from '../../components/visa/VisaPriceCalcPanel';
+import VisaProductSearchSelect from '../../components/visa/VisaProductSearchSelect';
 import { apiGet, apiPost, ApiError } from '../../api/client';
 import { emptyPassenger, passengerPayload, validatePassengers } from '../../lib/visaValidators';
 import { VISA_CATEGORY_LABELS, formatProcessingTime } from '../../lib/visaProducts';
@@ -110,24 +111,17 @@ function NewVisaRequestPage() {
 
         <Card title="1. Visa">
           <div className="grid gap-4 md:grid-cols-2">
-            <Select
+            <VisaProductSearchSelect
               label="Destination and visa"
-              required
+              products={products}
               value={visaProductId}
-              onChange={(e) => setVisaProductId(e.target.value)}
+              onChange={setVisaProductId}
               error={productError}
               hint={
                 selectedProduct
                   ? `${VISA_CATEGORY_LABELS[selectedProduct.category] ?? selectedProduct.category} — ${formatProcessingTime(selectedProduct)}`
-                  : undefined
+                  : `${products.length} visa${products.length === 1 ? '' : 's'} available — search by country or visa name.`
               }
-              options={[
-                { value: '', label: 'Select a visa...' },
-                ...products.map((p) => ({
-                  value: p.id,
-                  label: `${p.visaCountry.name} — ${p.name}`,
-                })),
-              ]}
             />
             <Select
               label="Visa type"

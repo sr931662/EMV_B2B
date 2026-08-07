@@ -12,7 +12,8 @@ import {
   Textarea,
   useToast,
 } from '../../components/ui';
-import { apiGet, apiPut, ApiError } from '../../api/client';
+import { apiGet, apiPut, apiPatch, ApiError } from '../../api/client';
+import { formatCurrency } from '../../lib/format';
 import {
   EVENT_TYPE_OPTIONS,
   MEAL_OPTIONS,
@@ -208,6 +209,92 @@ function EventEditor({ event, onChange, onRemove, nested = false }) {
   );
 }
 
+/**
+ * The day's own card — title, brief, description, notes, inclusions, meals — as opposed to its
+ * scheduled events below. Previously nothing on this page let an admin touch these at all: they
+ * were frozen in at the moment the day template was added to the package (locked rule 2) and
+ * could only be changed by replacing the whole itinerary. This is what "Notes" on the itinerary
+ * card means, and the fix for not being able to edit a day beyond its events.
+ */
+function DayDetailsEditor({ day, onSaved }) {
+  const [fields, setFields] = useState({
+    title: day.title ?? '',
+    brief: day.brief ?? '',
+    description: day.description ?? '',
+    notes: day.notes ?? '',
+    inclusions: day.inclusions ?? '',
+    mealsIncluded: day.mealsIncluded ?? [],
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const { showToast } = useToast();
+
+  const set = (field) => (e) => setFields((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await apiPatch(`/api/packages/days/${day.id}`, {
+        title: fields.title.trim(),
+        brief: fields.brief.trim() || null,
+        description: fields.description.trim(),
+        notes: fields.notes.trim() || null,
+        inclusions: fields.inclusions.trim() || null,
+        mealsIncluded: fields.mealsIncluded,
+      });
+      showToast({ variant: 'success', message: `Day ${day.dayNumber} card saved.` });
+      onSaved?.();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-neutral-300 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Day card</p>
+      {error && <Alert variant="danger">{error}</Alert>}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Input label="Title" value={fields.title} onChange={set('title')} />
+        <Input
+          label="Brief"
+          value={fields.brief}
+          onChange={set('brief')}
+          hint="One-line summary shown before the day expands."
+        />
+      </div>
+      <Textarea label="Description" rows={3} value={fields.description} onChange={set('description')} />
+      <Textarea
+        label="Notes"
+        rows={2}
+        value={fields.notes}
+        onChange={set('notes')}
+        hint='Operational caveats shown as a highlighted warning on the itinerary — e.g. "carry swimwear".'
+      />
+      <Textarea
+        label="Inclusions for this day"
+        rows={2}
+        value={fields.inclusions}
+        onChange={set('inclusions')}
+        hint="What THIS day covers — the package's trip-wide inclusions live on the package form instead."
+      />
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[13px] font-medium text-neutral-700">Meals included this day</span>
+        <MealPicker
+          value={fields.mealsIncluded}
+          onChange={(meals) => setFields((prev) => ({ ...prev, mealsIncluded: meals }))}
+        />
+      </div>
+      <Button type="button" size="sm" loading={saving} className="w-fit" onClick={handleSave}>
+        Save day card
+      </Button>
+    </div>
+  );
+}
+
 function DayEditor({ day, onSaved }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -300,13 +387,19 @@ function DayEditor({ day, onSaved }) {
       </button>
 
       {open && (
-        <div className="mt-4 flex flex-col gap-3 border-t border-neutral-100 pt-4">
+        <div className="mt-4 flex flex-col gap-4 border-t border-neutral-100 pt-4">
+          <DayDetailsEditor day={day} onSaved={onSaved} />
+
           {error && <Alert variant="danger">{error}</Alert>}
 
           {loading ? (
             <Skeleton.Stat />
           ) : (
             <>
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                Scheduled events
+              </p>
+
               {events.length === 0 && (
                 <p className="text-[13px] text-neutral-500">
                   No events yet. The itinerary page shows this day with its description only.
@@ -394,6 +487,17 @@ function AdminItineraryEditorPage() {
             {itinerary.package.countryName} · {itinerary.package.days} days ·{' '}
             {itinerary.package.nights} nights
           </p>
+          <p className="mt-1 text-sm text-neutral-700">
+            <span className="font-medium text-neutral-900">
+              Adult: {formatCurrency(itinerary.package.adultRawPrice)}
+            </span>
+            <span className="mx-1.5 text-neutral-300">·</span>
+            Child:{' '}
+            {Number(itinerary.package.childRawPrice) === 0
+              ? 'Free'
+              : formatCurrency(itinerary.package.childRawPrice)}
+            <span className="ml-1.5 text-neutral-400">(wholesale, per head)</span>
+          </p>
         </div>
         <Button as={Link} to={`/packages/${id}/itinerary`} variant="outline">
           <Icon name="eye" size={15} />
@@ -402,8 +506,9 @@ function AdminItineraryEditorPage() {
       </div>
 
       <Alert variant="info">
-        Each day is saved on its own. Sub-events nest one level deep — a day tour with three stops is
-        one event with three stops inside it.
+        Each day is saved on its own. Open a day to edit its own card (title, brief, notes,
+        inclusions, meals) and its scheduled events separately. Sub-events nest one level deep — a
+        day tour with three stops is one event with three stops inside it.
       </Alert>
 
       <div className="flex flex-col gap-3">

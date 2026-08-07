@@ -223,6 +223,7 @@ function TripVoucherPage() {
               <Table.Head>
                 <Table.HeadCell>Hotel</Table.HeadCell>
                 <Table.HeadCell>Address</Table.HeadCell>
+                <Table.HeadCell>Phone</Table.HeadCell>
                 <Table.HeadCell align="right">Nights</Table.HeadCell>
                 <Table.HeadCell>Check in</Table.HeadCell>
                 <Table.HeadCell>Check out</Table.HeadCell>
@@ -235,6 +236,7 @@ function TripVoucherPage() {
                       <span className="ml-2 text-[12px] text-neutral-500">{s.hotelCategory}</span>
                     </Table.Cell>
                     <Table.Cell muted={!s.hotelAddress}>{s.hotelAddress ?? 'Address not added'}</Table.Cell>
+                    <Table.Cell muted={!s.hotelPhone}>{s.hotelPhone ?? '—'}</Table.Cell>
                     <Table.Cell align="right">{s.nights}</Table.Cell>
                     <Table.Cell>
                       <DateWithDay value={s.checkIn} />
